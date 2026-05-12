@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+._*
+
+# Xcode
+build/
+DerivedData/
+*.xcuserdata/
+xcuserdata/
+*.xcuserstate
+project.xcworkspace/xcuserdata/
+
+# Build artifacts
+*.o
+*.dylib
+*.plugin
+engine_test
+test_full_render
+test_render
+
+# Logs
+/tmp/jitter_debug.log
+*.log
