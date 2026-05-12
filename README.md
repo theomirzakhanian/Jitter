@@ -1,8 +1,12 @@
-<p align="center">
-  <img src="assets/jitter.png" width="320" alt="Jitter">
-</p>
-
-# Jitter
+<table>
+  <tr>
+    <td width="140"><img src="assets/jitter.png" width="120" alt="Jitter logo"></td>
+    <td>
+      <h1>Jitter</h1>
+      <sub>After Effects Plugin</sub>
+    </td>
+  </tr>
+</table>
 
 An After Effects plugin that does what Video Copilot's Twitch did, except it runs natively on Apple Silicon.
 
