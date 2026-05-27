@@ -8,6 +8,8 @@
   </tr>
 </table>
 
+# NOT DONE! IN BETA
+
 An After Effects plugin that does what Video Copilot's Twitch did, except it runs natively on Apple Silicon.
 
 The original Twitch is x86_64 only, so on M-series Macs it runs through Rosetta if it runs at all, and current AE builds don't load it cleanly. I rewrote it from scratch against the modern AE SDK with Smart Render and Multi-Frame Rendering so it plays nice with current AE.
