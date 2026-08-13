@@ -1,56 +1,64 @@
 # Building Jitter
 
-You need the Adobe After Effects SDK. Download it from Adobe's developer site (a free signup, no NDA, no fee) and drop this folder into `SDK/Effect/Jitter/` next to the sample plugins.
-
 ## Requirements
 
-- macOS with Xcode (tested with Xcode 16+ on macOS 15+)
-- Apple Silicon or Intel Mac
-- After Effects 2024 or newer for testing
+- macOS with Xcode 16 or newer
+- The Adobe After Effects SDK — free download from Adobe's developer site, no NDA, no fee
+- After Effects 2024 or newer to test in
 
-## Quick build
+## Place the repo inside the SDK
+
+The Xcode project reaches the SDK through relative paths (`../../../Headers`,
+`../../../Util`), so the clone has to sit where the sample plugins do:
 
 ```bash
-cd Mac
-xcodebuild -project Jitter.xcodeproj -configuration Release -arch arm64
+cd <AE SDK>/Effect
+git clone https://github.com/theomirzakhanian/Jitter.git Jitter
 ```
 
-The build produces `Mac/build/Release/Skeleton.plugin` (Xcode target name is still "Skeleton" from the template; rename if you care). The plist inside is set up for Jitter — `CFBundleExecutable=Jitter`, `CFBundleIdentifier=com.adobe.AfterEffects.Jitter`.
+The result should be `<AE SDK>/Effect/Jitter/Mac/Jitter.xcodeproj`. Cloning
+anywhere else builds nothing — the headers won't resolve.
+
+## Build
+
+```bash
+cd Jitter/Mac
+xcodebuild -project Jitter.xcodeproj -configuration Release build
+```
+
+That produces `Mac/build/Release/Jitter.plugin` — a universal binary
+(arm64 + x86_64), ad-hoc signed, ready to install as-is. No renaming, no
+manual `codesign` step.
+
+Use `-configuration Debug` while developing: unoptimized, native arch only,
+builds faster.
 
 ## Install
 
-After Effects loads `.plugin` bundles from `/Applications/Adobe After Effects <version>/Plug-ins/Effects/`. The bundle needs to be named `Jitter.plugin` and the executable inside renamed to match. Codesign with an ad-hoc signature so Gatekeeper lets AE load it:
-
 ```bash
-# Rename, sign, install (adjust AE version as needed)
-PLUGIN_BUILD="Mac/build/Release/Skeleton.plugin"
-PLUGIN_DEST="/Applications/Adobe After Effects 2025/Plug-ins/Effects/Jitter.plugin"
-
-cp -R "$PLUGIN_BUILD" /tmp/Jitter.plugin
-mv /tmp/Jitter.plugin/Contents/MacOS/Skeleton /tmp/Jitter.plugin/Contents/MacOS/Jitter
-xattr -cr /tmp/Jitter.plugin
-codesign --force --sign - --timestamp=none /tmp/Jitter.plugin
-
-# Quit AE first, then:
-sudo rm -rf "$PLUGIN_DEST"
-sudo ditto --norsrc --noextattr --noacl /tmp/Jitter.plugin "$PLUGIN_DEST"
+# Quit After Effects first — it won't reload a plugin in place.
+AE="/Applications/Adobe After Effects 2025"
+sudo rm -rf "$AE/Plug-ins/Effects/Jitter.plugin"
+sudo ditto --norsrc --noextattr --noacl \
+  build/Release/Jitter.plugin "$AE/Plug-ins/Effects/Jitter.plugin"
 ```
 
-The `xattr -cr` and `ditto --noextattr` flags strip extended attributes that codesign refuses to touch — without them, signing fails with "resource fork, Finder information, or similar detritus not allowed."
+The effect shows up as **Jitter** under the Video Copilot category.
 
-## Standalone tests
+`ditto --norsrc --noextattr --noacl` matters: extended attributes tag along
+otherwise and invalidate the signature, after which AE silently declines to
+load the bundle.
 
-Two test programs run without After Effects:
+## Tests
 
-- `engine_test.cpp` — exercises the deterministic engine (seed independence, output ranges, smoothness).
-- `test_full_render.cpp` — mocks the AE SmartRender pipeline. Useful for catching regressions in the render path without a full reinstall cycle.
+Both harnesses run without launching After Effects. Run them from the repo root:
 
 ```bash
-# Engine tests
+# Engine: determinism, seed independence, output envelopes, easing
 clang++ -std=c++17 -O2 engine_test.cpp JitterEngine.cpp -o engine_test
 ./engine_test
 
-# Full-render harness (run from SDK/Effect/Jitter/)
+# SmartRender pipeline against a mocked AE host
 clang++ -std=c++17 -O2 \
   -I../../Headers -I../../Headers/SP -I../../Util -I../../Resources \
   -DAE_OS_MAC=1 -DPF_DEEP_COLOR_AWARE=1 \
@@ -61,6 +69,26 @@ clang++ -std=c++17 -O2 \
 ./test_full_render
 ```
 
+The render harness is worth running before any install cycle — it catches
+blank-output regressions (a zero `extent_hint` writing no pixels, fast-path
+vs slow-path divergence) that are miserable to diagnose inside AE.
+
 ## Debug logging
 
-`Jitter.cpp` has `JITTER_DEBUG_LOG` at the top. Set it to `1` and the plugin appends to `/tmp/jitter_debug.log` on every render call. Useful when something renders blank and you have no idea why.
+`Jitter.cpp` has `JITTER_DEBUG_LOG` near the top. Set it to `1` and every
+render call appends to `/tmp/jitter_debug.log`. Ships as `0`.
+
+## Project layout notes
+
+Three things about the Xcode project that will otherwise look like mistakes:
+
+- **`JitterEngine.cpp` is not a target member.** `Jitter.cpp` `#include`s it
+  directly (unity build) so the engine inlines into the render path. Adding it
+  to the Sources phase gives you duplicate symbols.
+- **`JitterPiPL.r` is not compiled.** The PiPL is registered programmatically
+  in `PluginDataEntryFunction2`, which is how the modern SDK prefers it. The
+  `.r` file is kept for reference.
+- **There's a "Strip extended attributes" script phase.** iCloud-synced folders
+  (`~/Documents`, `~/Desktop`) stamp `com.apple.FinderInfo` onto build output,
+  and `codesign` rejects any bundle carrying it. The phase clears them right
+  before signing. Harmless everywhere else.
