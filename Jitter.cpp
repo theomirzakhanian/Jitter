@@ -402,9 +402,14 @@ GlobalSetup(PF_InData *in_data, PF_OutData *out_data, PF_ParamDef *params[], PF_
 	out_data->my_version = PF_VERSION(MAJOR_VERSION, MINOR_VERSION, BUG_VERSION, STAGE_VERSION, BUILD_VERSION);
 
 	// Twitch's flags + ours. Match Twitch on what we honor; add MFR support.
+	// NON_PARAM_VARY is required because output depends on current_time even
+	// when every param is constant (the engine buckets time into events). On a
+	// still image AE would otherwise treat all frames as identical and serve
+	// stale cache.
 	out_data->out_flags  = PF_OutFlag_DEEP_COLOR_AWARE |
 	                       PF_OutFlag_USE_OUTPUT_EXTENT |
-	                       PF_OutFlag_WIDE_TIME_INPUT;
+	                       PF_OutFlag_WIDE_TIME_INPUT |
+	                       PF_OutFlag_NON_PARAM_VARY;
 	out_data->out_flags2 = PF_OutFlag2_SUPPORTS_SMART_RENDER |
 	                       PF_OutFlag2_SUPPORTS_THREADED_RENDERING |
 	                       PF_OutFlag2_PARAM_GROUP_START_COLLAPSED_FLAG |
@@ -447,7 +452,7 @@ ParamsSetup(PF_InData *in_data, PF_OutData *out_data, PF_ParamDef *params[], PF_
 
 	// Master Speed (disk ID 1) — Twitch has this; engine currently ignores its value
 	// but the slot exists so saved Twitch projects deserialize cleanly.
-	ADD_FLOAT(STR(StrID_Amount), 0.0, 100.0, 100.0,
+	ADD_FLOAT(STR(StrID_Speed), 0.0, 100.0, 100.0,
 		PF_Precision_HUNDREDTHS, SPEED_DISK_ID);
 
 	// Enable group — alphabetical: Blur, Color, Light, Scale, Slide, Time
@@ -932,8 +937,10 @@ SmartRender(PF_InData *in_data, PF_OutData *out_data, PF_SmartRenderExtra *extra
 
 	PF_CompositeMode comp_mode;
 	AEFX_CLR_STRUCT(comp_mode);
-	comp_mode.xfer    = PF_Xfer_COPY;
-	comp_mode.opacity = 255;
+	comp_mode.xfer      = PF_Xfer_COPY;
+	comp_mode.opacity   = 255;
+	comp_mode.opacitySu = PF_MAX_CHAN16;	// deep-color opacity; 0 here would mean
+	                                    	// fully transparent in 16/32bpc
 
 	bool deep        = PF_WORLD_IS_DEEP(output_worldP);
 	bool needs_split = (std::fabs(v.rgb_split_x) >= 0.5) ||

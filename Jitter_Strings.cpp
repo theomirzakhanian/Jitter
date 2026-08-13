@@ -22,6 +22,7 @@ TableString g_strs[StrID_NUMTYPES] = {
 	{ StrID_Description,                "Apple Silicon native port of Video Copilot Twitch.\rCopyright 2024" },
 
 	{ StrID_Amount,                     "Amount" },
+	{ StrID_Speed,                      "Speed" },
 	{ StrID_Seed,                       "Seed" },
 
 	{ StrID_Enable_Group,               "Enable" },

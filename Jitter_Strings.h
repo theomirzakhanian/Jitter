@@ -18,6 +18,7 @@ typedef enum {
 
 	// Master
 	StrID_Amount,
+	StrID_Speed,
 	StrID_Seed,
 
 	// Enable group
