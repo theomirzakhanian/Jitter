@@ -69,9 +69,21 @@ clang++ -std=c++17 -O2 \
 ./test_full_render
 ```
 
+```bash
+# Twitch-compatible engine: PRNG, event grid, envelope, slide
+clang++ -std=c++17 -O2 twitch_engine_test.cpp JitterEngineTwitch.cpp -o twitch_engine_test
+./twitch_engine_test
+```
+
 The render harness is worth running before any install cycle — it catches
 blank-output regressions (a zero `extent_hint` writing no pixels, fast-path
 vs slow-path divergence) that are miserable to diagnose inside AE.
+
+`twitch_engine_test` pins the parity engine against real libc `rand()` output
+captured from both arm64 and x86_64. If those first-six-draws assertions ever
+fail, bit-exact compatibility with the original plugin is gone. It's also worth
+running under `-fsanitize=thread` occasionally, since the whole point of that
+engine is that it holds no shared state.
 
 ## Debug logging
 
