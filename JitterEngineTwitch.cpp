@@ -20,13 +20,36 @@ static const double kPi = 3.14159265358979323846;
  * found rather than corrected. */
 static const double kDegToRadNeg = -0.017453292519943295;
 
+/* Event indices are bounded before any narrowing cast. A 100-hour comp at
+ * 60fps reaches ~2.2e7 frames, so this ceiling is far beyond real use while
+ * keeping the discard loop and the int conversion in safe territory. */
+static const int64_t kMaxDiscard = 100000000;
+
+/* Non-finite parameters reach here whenever an AE expression produces one.
+ * Casting a NaN to an integer type is undefined, so every path that floors
+ * a double into an index checks first. */
+static bool AllFinite(double a, double b, double c, double d)
+{
+	return std::isfinite(a) && std::isfinite(b) && std::isfinite(c) && std::isfinite(d);
+}
+
 double DrawRaw(int32_t master_seed, int32_t op_seed, int32_t k, int64_t event_idx)
 {
-	Rand rng(master_seed + op_seed + k);
+	// Sum in 64-bit and wrap deliberately. The K offsets reach 27000, so a
+	// large seed would otherwise overflow int32 on the way in, which is UB.
+	const int64_t sum = static_cast<int64_t>(master_seed) +
+	                    static_cast<int64_t>(op_seed) +
+	                    static_cast<int64_t>(k);
+	Rand rng(static_cast<int32_t>(static_cast<uint32_t>(sum & 0xFFFFFFFF)));
 
 	// Indices below -4 are clamped, so early negative times repeat a value.
 	int64_t idx = event_idx < -4 ? -4 : event_idx;
 	int64_t n = idx < 0 ? -idx : idx;
+
+	// The discard count is bounded before narrowing: a multi-hour comp at a
+	// high rate can otherwise overflow the int cast, and the cost of the
+	// discard loop is linear in n.
+	if (n > kMaxDiscard) n = kMaxDiscard;
 
 	rng.discard(static_cast<int>(n) + 5);
 	return rng.next01();
@@ -55,7 +78,13 @@ int EventPeriodFrames(double fps, double twitches_per_sec, double master_speed)
 
 	// Truncation toward zero, then a floor of one frame. The realised rate
 	// is fps/P, so a requested rate finer than one event per frame saturates.
-	int p = static_cast<int>(fps / rate);
+	// The quotient is range-checked before the cast: NaN or a value past
+	// INT_MAX would make the conversion undefined.
+	const double q = fps / rate;
+	if (!std::isfinite(q)) return 1;
+	if (q >= 2147483647.0) return 2147483647;
+
+	int p = static_cast<int>(q);
 	return p < 1 ? 1 : p;
 }
 
@@ -112,18 +141,40 @@ SlideResult EvaluateSlide(const SlideParams &p, double frame, double fps,
 {
 	SlideResult res = {0, 0, 0, 0, 0, 0, 0, 0};
 
+	// An AE expression can hand us NaN or infinity. Flooring one into an
+	// index is undefined behaviour, so bail to a still frame instead.
+	if (!AllFinite(frame, fps, width, height)) return res;
+
 	const int period = EventPeriodFrames(fps, p.twitches_per_sec, p.master_speed);
 
 	// Sampled at the frame centre, not the frame start.
 	const double t = frame + 0.5;
 
-	const int64_t k = static_cast<int64_t>(std::floor(t / static_cast<double>(period)));
+	double kf = std::floor(t / static_cast<double>(period));
+	if (!std::isfinite(kf)) return res;
+	if (kf >  1e15) kf =  1e15;			// keeps k + 1 clear of int64 overflow
+	if (kf < -1e15) kf = -1e15;
+	int64_t k = static_cast<int64_t>(kf);
 
-	const double prev_evt = EventTimeFrames(p.master_seed, p.op_seed, k, period);
-	const double next_evt = EventTimeFrames(p.master_seed, p.op_seed, k + 1, period);
+	// Events sit at (k + u_k) * P, jittered inside their interval, so event k
+	// is not guaranteed to be at or before t. Interval k-1's event always is,
+	// and interval k+1's always follows t, so one step back is enough to find
+	// the pair that genuinely brackets t. Without this the tent gets a
+	// "previous" event in the future and climbs above 1.0.
+	int64_t prev_idx = k;
+	double prev_evt = EventTimeFrames(p.master_seed, p.op_seed, k, period);
+	if (prev_evt > t) {
+		prev_idx = k - 1;
+		prev_evt = EventTimeFrames(p.master_seed, p.op_seed, prev_idx, period);
+	}
+	const double next_evt = EventTimeFrames(p.master_seed, p.op_seed, prev_idx + 1, period);
+
 	const double env = Envelope(t, prev_evt, next_evt, p.ease_in_frames, p.ease_out_frames);
 
-	SlideVector(p, K_SLIDE_AMP, K_SLIDE_ANGLE, k, env, width, height, true, &res.x, &res.y);
+	// The amplitude belongs to the event that last fired, which is prev_idx.
+	const int64_t k_evt = prev_idx;
+
+	SlideVector(p, K_SLIDE_AMP, K_SLIDE_ANGLE, k_evt, env, width, height, true, &res.x, &res.y);
 
 	// RGB Split blends between the coherent slide and three independent
 	// vectors. At full split the coherent component vanishes entirely,
@@ -131,9 +182,9 @@ SlideResult EvaluateSlide(const SlideParams &p, double frame, double fps,
 	const double s = p.rgb_split / 100.0;
 	if (s > 0.0) {
 		double rx, ry, gx, gy, bx, by;
-		SlideVector(p, K_SPLIT_AMP_1, K_SPLIT_ANGLE_1, k, env, width, height, false, &rx, &ry);
-		SlideVector(p, K_SPLIT_AMP_2, K_SPLIT_ANGLE_2, k, env, width, height, false, &gx, &gy);
-		SlideVector(p, K_SPLIT_AMP_3, K_SPLIT_ANGLE_3, k, env, width, height, false, &bx, &by);
+		SlideVector(p, K_SPLIT_AMP_1, K_SPLIT_ANGLE_1, k_evt, env, width, height, false, &rx, &ry);
+		SlideVector(p, K_SPLIT_AMP_2, K_SPLIT_ANGLE_2, k_evt, env, width, height, false, &gx, &gy);
+		SlideVector(p, K_SPLIT_AMP_3, K_SPLIT_ANGLE_3, k_evt, env, width, height, false, &bx, &by);
 		res.r_x = (1.0 - s) * res.x + s * rx;
 		res.r_y = (1.0 - s) * res.y + s * ry;
 		res.g_x = (1.0 - s) * res.x + s * gx;

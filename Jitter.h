@@ -70,6 +70,16 @@
 /* Per-operator standard ranges */
 #define	OP_AMOUNT_MIN		0.0
 #define	OP_AMOUNT_MAX		100.0
+/* Stays 0.0 for now, though the original defaults to 50.0.
+ *
+ * At 0.0 a freshly applied effect does nothing, because Slide is enabled by
+ * default but the engine short-circuits any operator whose amount is 0. That
+ * is a poor first impression and worth fixing — but not before the slide
+ * magnitude does. MAX_SLIDE_PIXELS is a fixed 500px regardless of layer size,
+ * so raising this default to 50.0 renders a small layer FULLY TRANSPARENT at
+ * defaults (test_full_render catches exactly this) and a 1080p layer about 20%
+ * transparent. The original avoids it by making slide a fraction of the frame.
+ * Raise this together with that change, not before it. */
 #define	OP_AMOUNT_DFLT		0.0
 #define	OP_TWITCHES_MIN		0.0
 #define	OP_TWITCHES_MAX		100.0

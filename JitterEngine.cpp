@@ -104,10 +104,20 @@ static double evaluateChannel(
 	double t)
 {
 	if (effective_twitches_per_sec <= 0.0) return 0.0;
+	if (!(std::isfinite(t) && std::isfinite(effective_twitches_per_sec))) return 0.0;
 	if (t < 0.0) t = 0.0;
 
 	double idx_f = t * effective_twitches_per_sec;
+
+	// An AE expression can drive a param to NaN or infinity, and the render
+	// path's isfinite guards only sanitize the engine's OUTPUT — by then this
+	// cast has already run, and converting a non-finite double to an integer
+	// type is undefined. Bail out before the cast instead.
+	if (!std::isfinite(idx_f)) return 0.0;
+
 	double idx_floor = std::floor(idx_f);
+	if (std::fabs(idx_floor) > 9.0e15) return 0.0;		// past int64's exact range
+
 	uint32_t idx = static_cast<uint32_t>(static_cast<int64_t>(idx_floor) & 0xFFFFFFFF);
 	double local_t = idx_f - idx_floor;
 

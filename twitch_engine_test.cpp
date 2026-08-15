@@ -260,6 +260,43 @@ static void test_slide()
 	      "zero split leaves all channels on the base slide");
 }
 
+/* ---- 6b. envelope stays bounded across a real sweep --------------
+ * Events are jittered inside their interval, so the interval index is not
+ * always the bracketing event. An earlier version fed the tent a
+ * "previous" event in the future, which pushed the envelope above 1.0 on
+ * roughly half of all frames and scaled the slide with it. */
+static void test_envelope_bounded()
+{
+	std::printf("\nEnvelope stays bounded over a sweep\n");
+
+	int over = 0, negative = 0;
+	double peak = 0.0;
+
+	for (int seed = 0; seed < 8; ++seed) {
+		twitch::SlideParams p = defaults();
+		p.master_seed = seed;
+		p.op_seed = seed * 7;
+		for (int f = 0; f < 400; ++f) {
+			const int period = twitch::EventPeriodFrames(24.0, p.twitches_per_sec, p.master_speed);
+			const double t = f + 0.5;
+			const double kf = std::floor(t / period);
+			int64_t k = static_cast<int64_t>(kf);
+			double prev = twitch::EventTimeFrames(p.master_seed, p.op_seed, k, period);
+			if (prev > t) prev = twitch::EventTimeFrames(p.master_seed, p.op_seed, --k, period);
+			const double next = twitch::EventTimeFrames(p.master_seed, p.op_seed, k + 1, period);
+			const double env = twitch::Envelope(t, prev, next, p.ease_in_frames, p.ease_out_frames);
+			if (env > 1.0 + 1e-9) ++over;
+			if (env < 0.0) ++negative;
+			peak = std::max(peak, env);
+		}
+	}
+
+	char msg[110];
+	std::snprintf(msg, sizeof(msg), "envelope never exceeds 1.0 across 3200 frames (peak %.6f)", peak);
+	check(over == 0, msg);
+	check(negative == 0, "envelope never goes negative across the sweep");
+}
+
 /* ---- 7. MFR safety ----------------------------------------------- */
 static void test_threading()
 {
@@ -298,6 +335,7 @@ int main()
 	test_grid();
 	test_envelope();
 	test_slide();
+	test_envelope_bounded();
 	test_threading();
 
 	std::printf("\n%s (%d failures)\n",

@@ -607,25 +607,34 @@ SmartPreRender(PF_InData *in_data, PF_OutData *out_data, PF_PreRenderExtra *extr
 {
 	JLog("---- SmartPreRender start ---- t=%ld ts=%lu", (long)in_data->current_time, (unsigned long)in_data->time_scale);
 	PF_Err		err = PF_Err_NONE;
+	PF_Err		err2 = PF_Err_NONE;		// ERR2, for the param check-ins
 	PF_ParamDef	def;
 
+	// Every checkout is paired with a check-in. The SDK is explicit that any
+	// param you check out must be checked back in before you return, and this
+	// runs ~50 times per SmartPreRender on every MFR worker. Read the value
+	// out first: the PF_ParamDef fields go invalid once it is checked in.
+	// ERR2 so a failing check-in cannot mask a real error already in flight.
 	#define CHECK_F(IDX, FIELD) do { \
 		AEFX_CLR_STRUCT(def); \
 		ERR(PF_CHECKOUT_PARAM(in_data, (IDX), \
 			in_data->current_time, in_data->time_step, in_data->time_scale, &def)); \
 		(FIELD) = def.u.fs_d.value; \
+		ERR2(PF_CHECKIN_PARAM(in_data, &def)); \
 	} while (0)
 	#define CHECK_B(IDX, FIELD) do { \
 		AEFX_CLR_STRUCT(def); \
 		ERR(PF_CHECKOUT_PARAM(in_data, (IDX), \
 			in_data->current_time, in_data->time_step, in_data->time_scale, &def)); \
 		(FIELD) = (def.u.bd.value != 0); \
+		ERR2(PF_CHECKIN_PARAM(in_data, &def)); \
 	} while (0)
 	#define CHECK_POPUP(IDX, FIELD) do { \
 		AEFX_CLR_STRUCT(def); \
 		ERR(PF_CHECKOUT_PARAM(in_data, (IDX), \
 			in_data->current_time, in_data->time_step, in_data->time_scale, &def)); \
 		(FIELD) = def.u.pd.value; \
+		ERR2(PF_CHECKIN_PARAM(in_data, &def)); \
 	} while (0)
 
 	jitter::Config cfg;
@@ -678,6 +687,7 @@ SmartPreRender(PF_InData *in_data, PF_OutData *out_data, PF_PreRenderExtra *extr
 			in_data->time_step, in_data->time_scale, &def));
 		scale_origin_x_fixed = static_cast<double>(def.u.td.x_value) / 65536.0;
 		scale_origin_y_fixed = static_cast<double>(def.u.td.y_value) / 65536.0;
+		ERR2(PF_CHECKIN_PARAM(in_data, &def));
 	}
 	{ double t; CHECK_F(SCALE_ORIGIN_RANDOMIZE, t); (void)t; }
 	{ double t; CHECK_F(SCALE_MOTION_BLUR, t);     (void)t; }
@@ -717,6 +727,7 @@ SmartPreRender(PF_InData *in_data, PF_OutData *out_data, PF_PreRenderExtra *extr
 		AEFX_CLR_STRUCT(def);	// COLOR — read but not used until v3 Blur impl
 		ERR(PF_CHECKOUT_PARAM(in_data, BLUR_TINT, in_data->current_time,
 			in_data->time_step, in_data->time_scale, &def));
+		ERR2(PF_CHECKIN_PARAM(in_data, &def));
 	}
 	{ A_long t; CHECK_POPUP(BLUR_TRANSFER_MODE, t); (void)t; }
 	{ bool   t; CHECK_B(BLUR_USE_LENS_BLUR, t);     (void)t; }
