@@ -23,36 +23,51 @@ there's nothing to relearn.
 
 ## Install
 
-Download `Jitter-v1.0.0-macOS-universal.zip` from the
+Download the zip from the
 [latest release](https://github.com/theomirzakhanian/Jitter/releases) and
-unzip it (double-clicking in Finder is fine).
+unzip it (double-clicking in Finder is fine). It contains `Jitter.plugin` and
+an `install.sh` next to it.
 
 **Quit After Effects first.** It won't pick up a plugin that changes underneath
 a running instance.
 
-Then paste this into Terminal. It clears the quarantine flag macOS puts on
-anything downloaded, and installs into every version of AE you have:
+In Terminal, type `cd ` — with a space — then drag the unzipped **folder** onto
+the Terminal window and press Return. Then:
 
 ```bash
-cd ~/Downloads                                    # wherever Jitter.plugin landed
-xattr -dr com.apple.quarantine Jitter.plugin
-
-for AE in "/Applications/Adobe After Effects "*; do
-  sudo ditto --norsrc --noextattr --noacl Jitter.plugin "$AE/Plug-ins/Effects/Jitter.plugin"
-  echo "installed to $AE"
-done
+./install.sh
 ```
 
-It asks for your password because AE's plugin folder lives inside
-`/Applications`. To install into one specific version instead, replace the loop:
-
-```bash
-sudo ditto --norsrc --noextattr --noacl Jitter.plugin \
-  "/Applications/Adobe After Effects 2025/Plug-ins/Effects/Jitter.plugin"
-```
+That's it. The script finds every installed After Effects, clears the download
+quarantine, copies the bundle in with its signature intact, and tells you what
+it did. It asks for your password because AE's plugin folder lives inside
+`/Applications`.
 
 Reopen AE. The effect is under Effect > Video Copilot > Jitter, or type
 "Jitter" in the Effects & Presets panel.
+
+**Nothing moves until you raise an operator's Amount.** Enable Slide and pull
+`Slide > Amount` up; the master Amount alone won't do it.
+
+<details>
+<summary>Installing by hand instead</summary>
+
+The two flags below are not decoration. A quarantined bundle and a signature
+invalidated by a Finder copy each make AE skip the plugin silently, with no
+error anywhere.
+
+```bash
+# Run this from the folder that actually contains Jitter.plugin.
+xattr -dr com.apple.quarantine Jitter.plugin
+
+sudo ditto --norsrc --noextattr --noacl Jitter.plugin \
+  "/Applications/Adobe After Effects 2026/Plug-ins/Effects/Jitter.plugin"
+```
+
+Adjust the AE version to match yours. If Terminal answers
+`Cannot get the real path for source 'Jitter.plugin'`, you are in the wrong
+folder — `cd` to the one holding the bundle and try again.
+</details>
 
 <details>
 <summary>Why those particular flags</summary>
@@ -170,7 +185,11 @@ signed universal bundle you can install with the same `ditto` command above.
 
 | Symptom | Cause |
 | --- | --- |
+| `Cannot get the real path for source 'Jitter.plugin'` | Terminal is in a different folder from the bundle, so nothing was installed. `cd` to the folder holding `Jitter.plugin` (type `cd `, drag the folder in, press Return) and run `./install.sh`. |
+| `permission denied: ./install.sh` | The script lost its executable bit in transit. Run `bash install.sh` instead. |
+| Effect appears nowhere, and the install printed no errors | You may be on a release older than v1.1.1. Every build before it was stamped with a minimum macOS of 26.2 and AE skips it in silence on anything older. Grab the current release. |
 | Effect doesn't appear in AE | AE was running during install. Quit it fully and reopen. |
+| Effect is there but nothing animates | Operator Amounts default to 0. Enable Slide and raise `Slide > Amount`; the master Amount alone does nothing. |
 | Still doesn't appear | Quarantine flag or a broken signature. Run the two checks above; if `codesign -v` complains, reinstall with `ditto`, not `cp` or Finder drag-and-drop. |
 | "Jitter.plugin is damaged and can't be opened" | Gatekeeper. `xattr -dr com.apple.quarantine Jitter.plugin`, then install again. |
 | Installed, but an old project still says the effect is missing | The project references Twitch by match name. That resolves only once Jitter is loaded, so restart AE after installing. |
