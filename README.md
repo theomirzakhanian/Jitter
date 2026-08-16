@@ -31,65 +31,59 @@ an `install.sh` next to it.
 **Quit After Effects first.** It won't pick up a plugin that changes underneath
 a running instance.
 
-In Terminal, type `cd ` — with a space — then drag the unzipped **folder** onto
-the Terminal window and press Return. Then:
+In Terminal, type `cd ` with a trailing space, drag the unzipped folder onto the
+Terminal window, and press Return. Then run:
 
 ```bash
 ./install.sh
 ```
 
-That's it. The script finds every installed After Effects, clears the download
-quarantine, copies the bundle in with its signature intact, and tells you what
-it did. It asks for your password because AE's plugin folder lives inside
+The script hunts down the bundle, finds every After Effects you have installed,
+clears the download quarantine and copies the plugin in without breaking its
+signature. It asks for your password, since AE keeps its plugins inside
 `/Applications`.
 
-Reopen AE. The effect is under Effect > Video Copilot > Jitter, or type
-"Jitter" in the Effects & Presets panel.
+Reopen AE and look under Effect > Video Copilot > Jitter, or type "Jitter" into
+the Effects & Presets panel.
 
-**Nothing moves until you raise an operator's Amount.** Enable Slide and pull
-`Slide > Amount` up; the master Amount alone won't do it.
+One thing catches almost everybody: nothing animates until you raise an
+operator's Amount. Enable Slide, then pull `Slide > Amount` up. The master
+Amount on its own does nothing.
 
 <details>
-<summary>Installing by hand instead</summary>
+<summary>Installing by hand</summary>
 
-The two flags below are not decoration. A quarantined bundle and a signature
-invalidated by a Finder copy each make AE skip the plugin silently, with no
-error anywhere.
+Run this from the folder holding `Jitter.plugin`, with the AE version changed to
+match yours:
 
 ```bash
-# Run this from the folder that actually contains Jitter.plugin.
 xattr -dr com.apple.quarantine Jitter.plugin
 
 sudo ditto --norsrc --noextattr --noacl Jitter.plugin \
   "/Applications/Adobe After Effects 2026/Plug-ins/Effects/Jitter.plugin"
 ```
 
-Adjust the AE version to match yours. If Terminal answers
-`Cannot get the real path for source 'Jitter.plugin'`, you are in the wrong
-folder — `cd` to the one holding the bundle and try again.
-</details>
+Both commands earn their keep. `xattr` clears the flag macOS stamps on
+downloads, and Gatekeeper blocks the bundle while it is there. `ditto` with
+those three flags copies without resource forks, extended attributes or ACLs,
+where a plain `cp` or a drag in Finder brings along attributes that invalidate
+the code signature. Either failure ends the same way: AE skips the plugin and
+mentions it to nobody, so the install looks fine and the effect never shows up.
 
-<details>
-<summary>Why those particular flags</summary>
-
-`xattr -dr com.apple.quarantine` removes the download flag. Left on, Gatekeeper
-blocks the bundle and AE skips it silently, with no error to tell you why.
-
-`ditto --norsrc --noextattr --noacl` copies without resource forks, extended
-attributes, or ACLs. A plain `cp` drags along attributes that invalidate the
-code signature, and AE won't load a plugin whose signature doesn't check out.
-It fails just as quietly as the quarantine case.
-
-The build is ad-hoc signed rather than notarized, which is why macOS treats it
-as unidentified. Everything is here if you'd rather compile it yourself: see
+The build is ad-hoc signed rather than notarized, so macOS treats it as coming
+from an unidentified developer. If you would rather compile it yourself, see
 [BUILD.md](BUILD.md).
+
+If Terminal answers `Cannot get the real path for source 'Jitter.plugin'`, you
+are standing in the wrong folder. `cd` to the one holding the bundle and run it
+again.
 </details>
 
 <details>
 <summary>Checking that it worked</summary>
 
 ```bash
-AE="/Applications/Adobe After Effects 2025"
+AE="/Applications/Adobe After Effects 2026"     # your version here
 codesign -v "$AE/Plug-ins/Effects/Jitter.plugin" && echo "signature ok"
 lipo -archs "$AE/Plug-ins/Effects/Jitter.plugin/Contents/MacOS/Jitter"
 ```
@@ -101,7 +95,7 @@ The second command should print `x86_64 arm64`.
 <summary>Uninstalling</summary>
 
 ```bash
-sudo rm -rf "/Applications/Adobe After Effects 2025/Plug-ins/Effects/Jitter.plugin"
+sudo rm -rf "/Applications/Adobe After Effects 2026/Plug-ins/Effects/Jitter.plugin"
 ```
 </details>
 
@@ -185,11 +179,11 @@ signed universal bundle you can install with the same `ditto` command above.
 
 | Symptom | Cause |
 | --- | --- |
-| `Cannot get the real path for source 'Jitter.plugin'` | Terminal is in a different folder from the bundle, so nothing was installed. `cd` to the folder holding `Jitter.plugin` (type `cd `, drag the folder in, press Return) and run `./install.sh`. |
-| `permission denied: ./install.sh` | The script lost its executable bit in transit. Run `bash install.sh` instead. |
-| Effect appears nowhere, and the install printed no errors | You may be on a release older than v1.1.1. Every build before it was stamped with a minimum macOS of 26.2 and AE skips it in silence on anything older. Grab the current release. |
+| `Cannot get the real path for source 'Jitter.plugin'` | Terminal is looking in a different folder from the bundle, so nothing got installed. Type `cd `, drag the folder holding `Jitter.plugin` onto the window, press Return, then run `./install.sh`. |
+| `permission denied: ./install.sh` | The script lost its executable bit somewhere along the way. Run `bash install.sh` instead. |
+| Effect appears nowhere and the install reported no errors | Check which release you have. Everything before v1.1.1 was stamped with a minimum macOS of 26.2, and AE passes over it without comment on anything older. Download the current release. |
 | Effect doesn't appear in AE | AE was running during install. Quit it fully and reopen. |
-| Effect is there but nothing animates | Operator Amounts default to 0. Enable Slide and raise `Slide > Amount`; the master Amount alone does nothing. |
+| Effect is there but nothing animates | Operator Amounts start at 0. Enable Slide and raise `Slide > Amount`. The master Amount on its own will not move anything. |
 | Still doesn't appear | Quarantine flag or a broken signature. Run the two checks above; if `codesign -v` complains, reinstall with `ditto`, not `cp` or Finder drag-and-drop. |
 | "Jitter.plugin is damaged and can't be opened" | Gatekeeper. `xattr -dr com.apple.quarantine Jitter.plugin`, then install again. |
 | Installed, but an old project still says the effect is missing | The project references Twitch by match name. That resolves only once Jitter is loaded, so restart AE after installing. |
