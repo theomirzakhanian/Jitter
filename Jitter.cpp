@@ -147,8 +147,10 @@ static inline PF_Pixel16 SamplePixel16(const PF_EffectWorld *w, double x, double
 
 struct RGBSplitInfo {
 	const PF_EffectWorld	*src;
-	double					offset_x;
-	double					offset_y;
+	// Per-channel sampling offsets, relative to the already-transformed world.
+	double					r_x, r_y;
+	double					g_x, g_y;
+	double					b_x, b_y;
 };
 
 // ===================================================================
@@ -346,26 +348,35 @@ static PF_Err BlurPixel16(void *refcon, A_long x, A_long y, PF_Pixel16 *in, PF_P
 static PF_Err RGBSplitPixel8(void *refcon, A_long x, A_long y, PF_Pixel *in, PF_Pixel *out) {
 	(void)in;
 	RGBSplitInfo *info = static_cast<RGBSplitInfo*>(refcon);
-	PF_Pixel r = SamplePixel8(info->src, x - info->offset_x, y - info->offset_y);
-	PF_Pixel g = SamplePixel8(info->src, x,                  y);
-	PF_Pixel b = SamplePixel8(info->src, x + info->offset_x, y + info->offset_y);
+	// Each channel samples from where its own vector put it. Alpha is the mean
+	// of the three, so a pixel that only one channel reached is partly
+	// transparent rather than fully opaque, which keeps colour under alpha.
+	PF_Pixel r = SamplePixel8(info->src, x - info->r_x, y - info->r_y);
+	PF_Pixel g = SamplePixel8(info->src, x - info->g_x, y - info->g_y);
+	PF_Pixel b = SamplePixel8(info->src, x - info->b_x, y - info->b_y);
+	const double a = (static_cast<double>(r.alpha) +
+	                  static_cast<double>(g.alpha) +
+	                  static_cast<double>(b.alpha)) / 3.0;
 	out->red   = r.red;
 	out->green = g.green;
 	out->blue  = b.blue;
-	out->alpha = g.alpha;
+	out->alpha = static_cast<A_u_char>(a + 0.5);
 	return PF_Err_NONE;
 }
 
 static PF_Err RGBSplitPixel16(void *refcon, A_long x, A_long y, PF_Pixel16 *in, PF_Pixel16 *out) {
 	(void)in;
 	RGBSplitInfo *info = static_cast<RGBSplitInfo*>(refcon);
-	PF_Pixel16 r = SamplePixel16(info->src, x - info->offset_x, y - info->offset_y);
-	PF_Pixel16 g = SamplePixel16(info->src, x,                  y);
-	PF_Pixel16 b = SamplePixel16(info->src, x + info->offset_x, y + info->offset_y);
+	PF_Pixel16 r = SamplePixel16(info->src, x - info->r_x, y - info->r_y);
+	PF_Pixel16 g = SamplePixel16(info->src, x - info->g_x, y - info->g_y);
+	PF_Pixel16 b = SamplePixel16(info->src, x - info->b_x, y - info->b_y);
+	const double a = (static_cast<double>(r.alpha) +
+	                  static_cast<double>(g.alpha) +
+	                  static_cast<double>(b.alpha)) / 3.0;
 	out->red   = r.red;
 	out->green = g.green;
 	out->blue  = b.blue;
-	out->alpha = g.alpha;
+	out->alpha = static_cast<A_u_short>(a + 0.5);
 	return PF_Err_NONE;
 }
 
@@ -675,6 +686,7 @@ SmartPreRender(PF_InData *in_data, PF_OutData *out_data, PF_PreRenderExtra *extr
 	{ double t; CHECK_F(SLIDE_MOTION_BLUR, t); (void)t; }	// shutter-angle integration: M6+
 	double slide_rgb_split_amt = 0;
 	CHECK_F(SLIDE_RGB_SPLIT, slide_rgb_split_amt);
+	cfg.slide_rgb_split = slide_rgb_split_amt;
 
 	// ---- Scale ----
 	CHECK_F(SCALE_AMOUNT,    cfg.scale.amount);
@@ -751,12 +763,12 @@ SmartPreRender(PF_InData *in_data, PF_OutData *out_data, PF_PreRenderExtra *extr
 	if (!std::isfinite(result.slide_y))     result.slide_y = 0.0;
 	if (!std::isfinite(result.scale) || result.scale <= 0.0) result.scale = 1.0;
 	if (!std::isfinite(result.time_offset)) result.time_offset = 0.0;
-	if (!std::isfinite(result.rgb_split_x)) result.rgb_split_x = 0.0;
-	if (!std::isfinite(result.rgb_split_y)) result.rgb_split_y = 0.0;
-
-	// Slide RGB Split sub-param scales the engine's rgb_split channels.
-	result.rgb_split_x *= slide_rgb_split_amt / 100.0;
-	result.rgb_split_y *= slide_rgb_split_amt / 100.0;
+	if (!std::isfinite(result.split_r_x)) result.split_r_x = 0.0;
+	if (!std::isfinite(result.split_r_y)) result.split_r_y = 0.0;
+	if (!std::isfinite(result.split_g_x)) result.split_g_x = 0.0;
+	if (!std::isfinite(result.split_g_y)) result.split_g_y = 0.0;
+	if (!std::isfinite(result.split_b_x)) result.split_b_x = 0.0;
+	if (!std::isfinite(result.split_b_y)) result.split_b_y = 0.0;
 
 	// Slide Direction + Spread: when Direction != 0, project the slide
 	// vector onto the direction axis and shrink the perpendicular component
@@ -908,7 +920,7 @@ SmartRender(PF_InData *in_data, PF_OutData *out_data, PF_SmartRenderExtra *extra
 	}
 	const jitter::Output &v = pdata->values;
 	JLog("Render: values slide=(%.2f,%.2f) scale=%.4f rgb=(%.2f,%.2f)",
-		v.slide_x, v.slide_y, v.scale, v.rgb_split_x, v.rgb_split_y);
+		v.slide_x, v.slide_y, v.scale, v.split_r_x, v.split_r_y);
 
 	// Show Twitch Only — debug viewer. Fill output with a neutral mid-gray
 	// so the user can see the effect is "active" but no layer content shows.
@@ -954,14 +966,15 @@ SmartRender(PF_InData *in_data, PF_OutData *out_data, PF_SmartRenderExtra *extra
 	                                    	// fully transparent in 16/32bpc
 
 	bool deep        = PF_WORLD_IS_DEEP(output_worldP);
-	bool needs_split = (std::fabs(v.rgb_split_x) >= 0.5) ||
-	                   (std::fabs(v.rgb_split_y) >= 0.5);
+	bool needs_split = (std::fabs(v.split_r_x) >= 0.5) || (std::fabs(v.split_r_y) >= 0.5) ||
+	                   (std::fabs(v.split_g_x) >= 0.5) || (std::fabs(v.split_g_y) >= 0.5) ||
+	                   (std::fabs(v.split_b_x) >= 0.5) || (std::fabs(v.split_b_y) >= 0.5);
 	bool needs_color = std::fabs(v.color) > 0.001;
 	bool needs_light = std::fabs(v.light) > 0.001;
 	bool needs_blur  = std::fabs(v.blur)  > 0.001;
 	bool needs_temp  = needs_split || needs_color || needs_light || needs_blur;
 	JLog("Render: ops color=%.4f light=%.4f blur=%.4f rgbX=%.2f → split=%d color=%d light=%d blur=%d temp=%d",
-		v.color, v.light, v.blur, v.rgb_split_x,
+		v.color, v.light, v.blur, v.split_r_x,
 		(int)needs_split, (int)needs_color, (int)needs_light, (int)needs_blur, (int)needs_temp);
 
 	// ---- Fast path: just transform → output ----
@@ -1080,11 +1093,13 @@ SmartRender(PF_InData *in_data, PF_OutData *out_data, PF_SmartRenderExtra *extra
 		}
 		JLog("Render: Blur op done err=%d", (int)err);
 	} else if (!err && needs_split) {
-		JLog("Render: RGBSplit op rgb=(%.2f,%.2f)", v.rgb_split_x, v.rgb_split_y);
+		JLog("Render: RGBSplit op r=(%.2f,%.2f) g=(%.2f,%.2f) b=(%.2f,%.2f)",
+			v.split_r_x, v.split_r_y, v.split_g_x, v.split_g_y, v.split_b_x, v.split_b_y);
 		RGBSplitInfo info;
-		info.src      = &temp_world;
-		info.offset_x = v.rgb_split_x;
-		info.offset_y = v.rgb_split_y;
+		info.src = &temp_world;
+		info.r_x = v.split_r_x;  info.r_y = v.split_r_y;
+		info.g_x = v.split_g_x;  info.g_y = v.split_g_y;
+		info.b_x = v.split_b_x;  info.b_y = v.split_b_y;
 		if (deep) {
 			ERR(suites.Iterate16Suite2()->iterate(
 				in_data, 0, temp_world.height, &temp_world, NULL,

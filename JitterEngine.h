@@ -53,20 +53,28 @@ struct Config {
 	OperatorParams	color;	// v3 placeholder, evaluated for engine completeness
 	OperatorParams	light;	// v3 placeholder
 	OperatorParams	blur;	// v3 placeholder
+	double			slide_rgb_split;	// 0..100, Slide's RGB Split sub-param
 };
 
 // Engine output. Each field is in its operator's natural unit so the render
 // path can use it directly without further scaling.
 //
-// Slide produces four independent channels driven by the same event sequence:
-// XY translation plus an RGB-split offset vector. RGB Split is a sub-param
-// of Slide in Twitch, not its own operator — when slide_amount=0 there is
-// no RGB split either, by design.
+// Slide produces XY translation plus three per-channel split displacements
+// driven by the same event sequence. RGB Split is a sub-param of Slide, not
+// its own operator, so slide_amount=0 means no split either. The split is a
+// blend weight rather than an offset: it mixes the coherent slide against
+// three independent vectors of the same amplitude, which is what lets a tiny
+// shake carry a large chromatic separation.
 struct Output {
 	double	slide_x;		// pixels  (positive = right)
 	double	slide_y;		// pixels  (positive = down)
-	double	rgb_split_x;	// pixels  (per-channel chromatic aberration, x)
-	double	rgb_split_y;	// pixels  (per-channel chromatic aberration, y)
+	// Per-channel RGB Split displacement, RELATIVE to the base slide above.
+	// Add one of these to (slide_x, slide_y) to get where that channel lands.
+	// Split blends between the coherent slide and three independent vectors,
+	// so at 100 the shared motion cancels out and only separation is left.
+	double	split_r_x, split_r_y;
+	double	split_g_x, split_g_y;
+	double	split_b_x, split_b_y;
 	double	scale;			// multiplier (1.0 = no change)
 	double	time_offset;	// seconds
 	double	color;			// (v3) raw [-1,1]

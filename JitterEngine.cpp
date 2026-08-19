@@ -18,7 +18,6 @@ namespace jitter {
 static const double MAX_SLIDE_PIXELS    = 500.0;	// Slide  — peak ± in pixels
 static const double MAX_SCALE_DEV       = 0.5;		// Scale  — ±50% (1.0 ± 0.5) at full
 static const double MAX_TIME_OFFSET_SEC = 1.0;		// Time   — peak ± offset in seconds
-static const double MAX_RGB_SPLIT_PX    = 50.0;		// Slide RGB Split — peak channel offset in pixels
 
 // ---- Operator IDs ----
 // Used as a salt so operator A's seed=5 doesn't collide with operator B's seed=5.
@@ -136,8 +135,9 @@ Output Evaluate(const Config& cfg, double t) {
 	Output out;
 	out.slide_x = 0.0;
 	out.slide_y = 0.0;
-	out.rgb_split_x = 0.0;
-	out.rgb_split_y = 0.0;
+	out.split_r_x = 0.0;  out.split_r_y = 0.0;
+	out.split_g_x = 0.0;  out.split_g_y = 0.0;
+	out.split_b_x = 0.0;  out.split_b_y = 0.0;
 	out.scale = 1.0;
 	out.time_offset = 0.0;
 	out.color = 0.0;
@@ -159,8 +159,32 @@ Output Evaluate(const Config& cfg, double t) {
 	// but uncorrelated random values per channel via channel_id.
 	out.slide_x     = evalOp(cfg.slide, OP_SLIDE, 0) * MAX_SLIDE_PIXELS;
 	out.slide_y     = evalOp(cfg.slide, OP_SLIDE, 1) * MAX_SLIDE_PIXELS;
-	out.rgb_split_x = evalOp(cfg.slide, OP_SLIDE, 2) * MAX_RGB_SPLIT_PX;
-	out.rgb_split_y = evalOp(cfg.slide, OP_SLIDE, 3) * MAX_RGB_SPLIT_PX;
+	// RGB Split blends the coherent slide against three independent vectors
+	// drawn from the same event grid at the same amplitude. At 0 every channel
+	// rides the slide; at 100 the shared motion cancels completely and each
+	// channel goes its own way. Because the independent vectors use the slide's
+	// own amplitude rather than a separate smaller ceiling, a 10% slide with
+	// full split gives a 10%-sized separation with no common shake — which is
+	// the whole point of the control, and what the original does.
+	const double split = cfg.slide_rgb_split / 100.0;
+	if (split > 0.0) {
+		const double s = split > 1.0 ? 1.0 : split;
+		const double ind_r_x = evalOp(cfg.slide, OP_SLIDE, 2) * MAX_SLIDE_PIXELS;
+		const double ind_r_y = evalOp(cfg.slide, OP_SLIDE, 3) * MAX_SLIDE_PIXELS;
+		const double ind_g_x = evalOp(cfg.slide, OP_SLIDE, 4) * MAX_SLIDE_PIXELS;
+		const double ind_g_y = evalOp(cfg.slide, OP_SLIDE, 5) * MAX_SLIDE_PIXELS;
+		const double ind_b_x = evalOp(cfg.slide, OP_SLIDE, 6) * MAX_SLIDE_PIXELS;
+		const double ind_b_y = evalOp(cfg.slide, OP_SLIDE, 7) * MAX_SLIDE_PIXELS;
+
+		// Stored as deltas from the base slide, so the render path can keep
+		// applying the slide as a transform and only offset the sampling.
+		out.split_r_x = s * (ind_r_x - out.slide_x);
+		out.split_r_y = s * (ind_r_y - out.slide_y);
+		out.split_g_x = s * (ind_g_x - out.slide_x);
+		out.split_g_y = s * (ind_g_y - out.slide_y);
+		out.split_b_x = s * (ind_b_x - out.slide_x);
+		out.split_b_y = s * (ind_b_y - out.slide_y);
+	}
 
 	out.scale       = 1.0 + evalOp(cfg.scale,   OP_SCALE, 0) * MAX_SCALE_DEV;
 	out.time_offset =        evalOp(cfg.time_op, OP_TIME,  0) * MAX_TIME_OFFSET_SEC;
