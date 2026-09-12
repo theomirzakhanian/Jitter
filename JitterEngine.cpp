@@ -154,27 +154,26 @@ Output Evaluate(const Config& cfg, double t) {
 		return v * (op.amount / 100.0) * master_amount;
 	};
 
-	// Slide: 4 independent channels — XY translation + RGB-split offset.
+	// Slide: 8 independent channels — XY translation + three RGB vectors.
 	// All driven by the same Slide event grid (same twitches/sec, same op seed),
 	// but uncorrelated random values per channel via channel_id.
 	out.slide_x     = evalOp(cfg.slide, OP_SLIDE, 0) * MAX_SLIDE_PIXELS;
 	out.slide_y     = evalOp(cfg.slide, OP_SLIDE, 1) * MAX_SLIDE_PIXELS;
-	// RGB Split blends the coherent slide against three independent vectors
-	// drawn from the same event grid at the same amplitude. At 0 every channel
-	// rides the slide; at 100 the shared motion cancels completely and each
-	// channel goes its own way. Because the independent vectors use the slide's
-	// own amplitude rather than a separate smaller ceiling, a 10% slide with
-	// full split gives a 10%-sized separation with no common shake — which is
-	// the whole point of the control, and what the original does.
+	// RGB Split shares Slide's timing, seed and enable switch, but not its
+	// Amount. Otherwise reducing the shake also erases the chromatic glitch.
+	// Master Amount remains the overall strength control. Keep the existing
+	// blend: at 0 channels follow the base; at 100 each follows its own vector.
+	OperatorParams rgb = cfg.slide;
+	rgb.amount = 100.0;
 	const double split = cfg.slide_rgb_split / 100.0;
 	if (split > 0.0) {
 		const double s = split > 1.0 ? 1.0 : split;
-		const double ind_r_x = evalOp(cfg.slide, OP_SLIDE, 2) * MAX_SLIDE_PIXELS;
-		const double ind_r_y = evalOp(cfg.slide, OP_SLIDE, 3) * MAX_SLIDE_PIXELS;
-		const double ind_g_x = evalOp(cfg.slide, OP_SLIDE, 4) * MAX_SLIDE_PIXELS;
-		const double ind_g_y = evalOp(cfg.slide, OP_SLIDE, 5) * MAX_SLIDE_PIXELS;
-		const double ind_b_x = evalOp(cfg.slide, OP_SLIDE, 6) * MAX_SLIDE_PIXELS;
-		const double ind_b_y = evalOp(cfg.slide, OP_SLIDE, 7) * MAX_SLIDE_PIXELS;
+		const double ind_r_x = evalOp(rgb, OP_SLIDE, 2) * MAX_SLIDE_PIXELS;
+		const double ind_r_y = evalOp(rgb, OP_SLIDE, 3) * MAX_SLIDE_PIXELS;
+		const double ind_g_x = evalOp(rgb, OP_SLIDE, 4) * MAX_SLIDE_PIXELS;
+		const double ind_g_y = evalOp(rgb, OP_SLIDE, 5) * MAX_SLIDE_PIXELS;
+		const double ind_b_x = evalOp(rgb, OP_SLIDE, 6) * MAX_SLIDE_PIXELS;
+		const double ind_b_y = evalOp(rgb, OP_SLIDE, 7) * MAX_SLIDE_PIXELS;
 
 		// Stored as deltas from the base slide, so the render path can keep
 		// applying the slide as a transform and only offset the sampling.

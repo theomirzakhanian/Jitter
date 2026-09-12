@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cmath>
 #include <cstdlib>
+#include <initializer_list>
 
 using namespace jitter;
 
@@ -147,10 +148,10 @@ int main() {
 	}
 
 	// ---- A small shake can still carry a large split ----
-	// This is the whole point of the control, and the thing the old additive
-	// model made impossible: at 10% slide the split used to be scaled by the
-	// slide amount AND the master amount AND its own slider, landing around
-	// half a pixel. The separation should now be the same order as the shake.
+	// Reported workflow: Master=10, Slide=10, RGB Split=100. Separation must
+	// remain strong as Slide Amount is lowered, including a pure RGB glitch
+	// at Slide Amount=0. Compare pairwise channel distances at partial/full
+	// split so a common translation cannot hide amplitude coupling.
 	{
 		Config q = defaultConfig();
 		q.master.amount = 10.0;
@@ -163,8 +164,39 @@ int main() {
 			sum_slide += std::fabs(o.slide_x);
 			sum_sep   += std::fabs(o.split_r_x - o.split_b_x);
 		}
-		check("at 10% slide with full split, separation is comparable to the shake",
-			sum_sep > 0.5 * sum_slide);
+		check("10/10/100: RGB separation dominates the small shake",
+			sum_sep > 5.0 * sum_slide);
+
+		bool independent = true, master_scales = true, quiet = true;
+		for (double split : {25.0, 50.0, 100.0}) {
+			q.slide_rgb_split = split;
+			for (int i = 0; i < 100; i++) {
+				const double t = i * 0.07;
+				q.slide.amount = 100.0;
+				const Output ref = Evaluate(q, t);
+				for (double amount : {0.0, 1.0, 10.0, 50.0}) {
+					q.slide.amount = amount;
+					const Output low = Evaluate(q, t);
+					independent &= std::fabs((ref.split_r_x - ref.split_g_x) -
+					                               (low.split_r_x - low.split_g_x)) < 1e-9;
+					independent &= std::fabs((ref.split_g_y - ref.split_b_y) -
+					                               (low.split_g_y - low.split_b_y)) < 1e-9;
+				}
+				q.slide.amount = 100.0;
+				q.master.amount = 5.0;
+				const Output half = Evaluate(q, t);
+				master_scales &= std::fabs((half.split_r_x - half.split_b_x) * 2.0 -
+				                          (ref.split_r_x - ref.split_b_x)) < 1e-9;
+				q.master.amount = 10.0;
+			}
+		}
+		check("RGB separation is independent of Slide Amount at 0..100", independent);
+		check("Master Amount still scales RGB separation", master_scales);
+		q.slide.twitches_per_sec = 0.0;
+		const Output stopped = Evaluate(q, 1.23);
+		quiet = stopped.split_r_x == 0.0 && stopped.split_g_y == 0.0 &&
+		        stopped.split_b_x == 0.0 && stopped.slide_x == 0.0;
+		check("Slide rate=0 disables both shake and separation", quiet);
 	}
 
 	// ---- Slide RGB-split x and y are independent ----

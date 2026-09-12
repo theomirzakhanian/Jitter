@@ -22,8 +22,9 @@ anywhere else builds nothing — the headers won't resolve.
 ## Build
 
 ```bash
-cd Jitter/Mac
-xcodebuild -project Jitter.xcodeproj -configuration Release build
+cd <AE SDK>/Effect/Jitter/Mac
+xcodebuild -project Jitter.xcodeproj -scheme Jitter -configuration Release \
+  -destination 'generic/platform=macOS' build
 ```
 
 That produces `Mac/build/Release/Jitter.plugin` — a universal binary
@@ -34,6 +35,8 @@ Use `-configuration Debug` while developing: unoptimized, native arch only,
 builds faster.
 
 ## Install
+
+For the complete user walkthrough, see [INSTALL.md](INSTALL.md).
 
 ```bash
 # Quit After Effects first — it won't reload a plugin in place.
@@ -51,7 +54,7 @@ load the bundle.
 
 ## Tests
 
-Both harnesses run without launching After Effects. Run them from the repo root:
+All three harnesses run without launching After Effects. Run them from the repo root:
 
 ```bash
 # Engine: determinism, seed independence, output envelopes, easing
@@ -84,6 +87,25 @@ captured from both arm64 and x86_64. If those first-six-draws assertions ever
 fail, bit-exact compatibility with the original plugin is gone. It's also worth
 running under `-fsanitize=thread` occasionally, since the whole point of that
 engine is that it holds no shared state.
+
+## Package a release
+
+After the universal Release build succeeds, run from the repository root:
+
+```bash
+bash scripts/package_release.sh
+```
+
+For a build in another directory, pass the path to `Jitter.plugin` as the
+first argument. The script verifies the signature and both architectures,
+then writes `dist/Jitter-v<version>-macOS-universal.zip` and a SHA-256 file.
+The archive contains the plugin, installer, user guides, release notes and
+license. Never distribute the GitHub source-code zip as the installation asset.
+
+Before publishing, update `Jitter.h`, both version fields in
+`Mac/Jitter.plugin-Info.plist`, and `CHANGELOG.md`. Extract the packaged zip and
+verify the extracted signature, architectures and bundle version. Run the
+three test harnesses above and review saved comps affected by render changes.
 
 ## Debug logging
 

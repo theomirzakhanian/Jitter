@@ -1,199 +1,138 @@
 <table>
   <tr>
     <td width="140"><img src="assets/jitter.png" width="120" alt="Jitter logo"></td>
-    <td>
-      <h1>Jitter</h1>
-      <sub>Seeded motion glitches for After Effects, native on Apple Silicon</sub>
-    </td>
+    <td><h1>Jitter</h1><sub>Seeded motion glitches for After Effects, native on Apple Silicon</sub></td>
   </tr>
 </table>
 
-![macOS](https://img.shields.io/badge/macOS-11%2B-lightgrey)
-![Universal](https://img.shields.io/badge/binary-arm64%20%2B%20x86__64-blue)
-![After Effects](https://img.shields.io/badge/After%20Effects-2024%2B-9999ff)
-![License](https://img.shields.io/badge/license-MIT-green)
+**Free and open source. Download directly—no DM or beta invitation needed.**
 
-Video Copilot's Twitch is x86_64 only. On an M-series Mac it runs through
-Rosetta if it runs at all, and recent AE builds don't load it cleanly. So I
-rewrote it from scratch against the modern AE SDK, with Smart Render and
-Multi-Frame Rendering support. Same six operators and the same UI layout, so
-there's nothing to relearn.
+[**Download the latest Mac release**](https://github.com/theomirzakhanian/Jitter/releases/latest)
+· [Installation walkthrough](INSTALL.md)
+· [Release notes](CHANGELOG.md)
+· [Report a problem](https://github.com/theomirzakhanian/Jitter/issues)
 
-<!-- demo GIF goes here: assets/demo.gif -->
+Jitter is an independent C++ After Effects plugin inspired by Video Copilot's
+Twitch. It provides Slide, Scale, Time, Color, Light and Blur, with seeded
+animation, Smart Render and Multi-Frame Rendering support.
 
-## Install
+## Download and install
 
-Download the zip from the
-[latest release](https://github.com/theomirzakhanian/Jitter/releases) and
-unzip it (double-clicking in Finder is fine). It contains `Jitter.plugin` and
-an `install.sh` next to it.
+1. Open the [latest release](https://github.com/theomirzakhanian/Jitter/releases/latest).
+2. Under **Assets**, download **`Jitter-v1.3.0-macOS-universal.zip`** (or the
+   newer version's similarly named zip). **Do not choose “Source code (zip)”:**
+   that contains source files, not the compiled plugin.
+3. Unzip it and quit After Effects completely.
+4. In Terminal, type `cd ` with a trailing space, drag the extracted **Jitter**
+   folder into the window, then press Return. Run:
 
-**Quit After Effects first.** It won't pick up a plugin that changes underneath
-a running instance.
+   ```bash
+   bash install.sh
+   ```
 
-In Terminal, type `cd ` with a trailing space, drag the unzipped folder onto the
-Terminal window, and press Return. Then run:
+5. Reopen After Effects. Search for **Jitter** in **Effects & Presets**, or use
+   **Effect > Video Copilot > Jitter**.
 
-```bash
-./install.sh
-```
+The installer asks for your Mac administrator password to copy into installed
+After Effects folders in `/Applications`. Terminal shows no characters while
+that password is typed. It also removes download quarantine from this bundle.
+The build is ad-hoc signed, not Apple-notarized.
 
-The script hunts down the bundle, finds every After Effects you have installed,
-clears the download quarantine and copies the plugin in without breaking its
-signature. It asks for your password, since AE keeps its plugins inside
-`/Applications`.
+[The full walkthrough](INSTALL.md) covers verifying the download, manual
+installation, updates, and missing-effect errors.
 
-Reopen AE and look under Effect > Video Copilot > Jitter, or type "Jitter" into
-the Effects & Presets panel.
+## Try the RGB glitch
 
-One thing catches almost everybody: nothing animates until you raise an
-operator's Amount. Enable Slide, then pull `Slide > Amount` up. The master
-Amount on its own does nothing.
+Apply Jitter to footage or a text layer, then set:
 
-<details>
-<summary>Installing by hand</summary>
-
-Run this from the folder holding `Jitter.plugin`, with the AE version changed to
-match yours:
-
-```bash
-xattr -dr com.apple.quarantine Jitter.plugin
-
-sudo ditto --norsrc --noextattr --noacl Jitter.plugin \
-  "/Applications/Adobe After Effects 2026/Plug-ins/Effects/Jitter.plugin"
-```
-
-Both commands earn their keep. `xattr` clears the flag macOS stamps on
-downloads, and Gatekeeper blocks the bundle while it is there. `ditto` with
-those three flags copies without resource forks, extended attributes or ACLs,
-where a plain `cp` or a drag in Finder brings along attributes that invalidate
-the code signature. Either failure ends the same way: AE skips the plugin and
-mentions it to nobody, so the install looks fine and the effect never shows up.
-
-The build is ad-hoc signed rather than notarized, so macOS treats it as coming
-from an unidentified developer. If you would rather compile it yourself, see
-[BUILD.md](BUILD.md).
-
-If Terminal answers `Cannot get the real path for source 'Jitter.plugin'`, you
-are standing in the wrong folder. `cd` to the one holding the bundle and run it
-again.
-</details>
-
-<details>
-<summary>Checking that it worked</summary>
-
-```bash
-AE="/Applications/Adobe After Effects 2026"     # your version here
-codesign -v "$AE/Plug-ins/Effects/Jitter.plugin" && echo "signature ok"
-lipo -archs "$AE/Plug-ins/Effects/Jitter.plugin/Contents/MacOS/Jitter"
-```
-
-The second command should print `x86_64 arm64`.
-</details>
-
-<details>
-<summary>Uninstalling</summary>
-
-```bash
-sudo rm -rf "/Applications/Adobe After Effects 2026/Plug-ins/Effects/Jitter.plugin"
-```
-</details>
-
-## Operators
-
-Six of them, each with its own seed, amount, and twitches-per-second:
-
-| Operator | What it does |
+| Control | Value |
 | --- | --- |
-| Slide | XY jitter, with direction angle, spread, and an RGB split sub-param for chromatic separation |
-| Scale | Zoom around an origin you pick |
-| Time | Frame jumps, forward only or both directions |
-| Color | HSL hue rotation |
-| Light | Brightness shift: brighter, darker, or both |
-| Blur | Directional blur along the slide axis |
+| Master Amount | 10 |
+| Enable > Slide | On |
+| Slide > Amount | 10 |
+| Slide > Twitches/sec | 5 |
+| Slide > RGB Split | 100 |
+| Enable > Blur | Off |
 
-There's also a master Amount that scales all of them at once, plus Ease In,
-Ease Out, and Randomize Minimum for the behaviour of each event.
+Preview several seconds. **Slide Amount controls the shake; RGB Split controls
+chromatic separation independently of Slide Amount.** At RGB Split 100, the
+shared slide is replaced by independent channel motion. At intermediate
+values, some shared motion remains. Set Slide Amount to 0 for separation
+without base translation. Master Amount still scales both; Master Amount 0
+or disabling Slide turns both off.
 
-## Opening projects that used Twitch
+To try a shake without color separation, set RGB Split to 0 and raise Slide
+Amount. Other operator Amounts start at 0; enabling them alone does not animate
+them.
 
-Jitter registers the legacy match name `Videocopilot Twitch` next to
-`ADBE Jitter`, and its parameter disk IDs line up with the original's. Projects
-and animation presets that reference Twitch will resolve to this plugin and
-load their values into the right slots.
+## Compatibility and release status
 
-Frame-for-frame output won't match, though. The two plugins use different RNGs,
-so individual frame values differ even where the visual envelopes (peak
-amplitudes, event rates) line up. Presets that touch parameters outside the six
-operators above are also untested.
+**v1.3.0 is a public release.** See [CHANGELOG.md](CHANGELOG.md) for changes and
+upgrade notes. The latest-release page is the canonical download; an aescripts
+listing is not currently offered here.
 
-## Status
-
-It works. Renders correctly on Apple Silicon, handles adjustment layers,
-survives scrubbing, doesn't crash.
-
-Three operators are simpler than the originals. Color does a flat hue rotation
-where Twitch does HSL range selection. Blur is a directional tap filter where
-Twitch's is FFT-based. Light is a straight brightness shift. The output is
-believable rather than identical.
-
-## How it works
-
-The engine is stateless. Given a seed and a time it returns every operator's
-value in O(1), without walking the timeline from t=0. That's what makes
-Multi-Frame Rendering safe: any frame can render in any order on any thread,
-with no shared state between them.
-
-Each operator runs on its own event grid:
-
-```
-i        = floor(t * twitches_per_sec)
-v_curr   = randomTarget(hash(master_seed, op_seed, op_id, channel, i))
-v_next   = randomTarget(hash(master_seed, op_seed, op_id, channel, i+1))
-local_t  = t * twitches_per_sec - i
-output   = lerp(v_curr, v_next, ease(local_t, behavior))
-```
-
-`hash` is splitmix64 over five 32-bit lanes: master seed, operator seed,
-operator id, channel id, event index. Salting per operator is why changing
-Scale's seed doesn't move Slide.
-
-`SmartPreRender` reads the params, runs the engine at `current_time`, and
-stashes the result in `extra->output->pre_render_data`. `SmartRender` picks it
-back up, builds a transform matrix, then either goes straight to output (when
-no operator is active) or pushes a temp world through the Color, Light, and
-Blur passes.
-
-`test_full_render.cpp` drives that pipeline against a mocked AE host, so render
-bugs show up in a two-second test run instead of an install-and-relaunch cycle.
-It caught an output world arriving with an `extent_hint` of zero, which
-silently writes no pixels at all. That one would have cost me days inside AE.
-
-## Building it yourself
-
-[BUILD.md](BUILD.md) has the details. The short version: clone into the AE
-SDK's `Effect/` folder, `xcodebuild -configuration Release`, and you get a
-signed universal bundle you can install with the same `ditto` command above.
-
-## Troubleshooting
-
-| Symptom | Cause |
+| Requirement | Support |
 | --- | --- |
-| `Cannot get the real path for source 'Jitter.plugin'` | Terminal is looking in a different folder from the bundle, so nothing got installed. Type `cd `, drag the folder holding `Jitter.plugin` onto the window, press Return, then run `./install.sh`. |
-| `permission denied: ./install.sh` | The script lost its executable bit somewhere along the way. Run `bash install.sh` instead. |
-| Effect appears nowhere and the install reported no errors | Check which release you have. Everything before v1.1.1 was stamped with a minimum macOS of 26.2, and AE passes over it without comment on anything older. Download the current release. |
-| Effect doesn't appear in AE | AE was running during install. Quit it fully and reopen. |
-| Effect is there but nothing animates | Operator Amounts start at 0. Enable Slide and raise `Slide > Amount`. The master Amount on its own will not move anything. |
-| Still doesn't appear | Quarantine flag or a broken signature. Run the two checks above; if `codesign -v` complains, reinstall with `ditto`, not `cp` or Finder drag-and-drop. |
-| "Jitter.plugin is damaged and can't be opened" | Gatekeeper. `xattr -dr com.apple.quarantine Jitter.plugin`, then install again. |
-| Installed, but an old project still says the effect is missing | The project references Twitch by match name. That resolves only once Jitter is loaded, so restart AE after installing. |
-| Renders blank | Set `JITTER_DEBUG_LOG` to 1 in `Jitter.cpp`, rebuild, and read `/tmp/jitter_debug.log`. One line per render call. |
+| Platform | macOS; universal arm64 + x86_64 bundle |
+| After Effects | 2024 or newer is the project target |
+| macOS version | Bundle targets macOS 11+; your AE version may require a newer macOS |
+| Color depth | 8 and 16 bits per channel; 32-bit float rendering is not supported |
+| Windows | No Windows binary provided |
 
-## Naming
+The v1.3.0 checks cover the standalone engines, the mocked AE render pipeline
+(including RGB separation in 8/16-bit), and the universal release build. These
+checks do not establish compatibility with every AE/macOS combination.
 
-Twitch is a Video Copilot trademark. This plugin is called Jitter. It registers
-under Twitch's match name only so existing projects keep working.
+## Opening projects and presets that used Twitch
 
-## License
+Jitter registers both `ADBE Jitter` and the legacy match name
+`Videocopilot Twitch`. Parameter order and disk IDs remain unchanged in v1.3.0
+so existing projects can resolve the effect and load their saved values.
 
-MIT, see [LICENSE](LICENSE).
+**Saved RGB Split looks change in v1.3.0**, including through the legacy Twitch
+registration: lowering Slide Amount no longer suppresses separation. Review
+comps using RGB Split before final export; reduce RGB Split if the result is
+stronger than intended. Keep the previous release if you must reproduce an
+old Jitter render exactly.
+
+Jitter is not a frame-for-frame Twitch replacement. The active renderer uses a
+different random generator, and some controls remain approximate or inactive.
+
+## Operators and known limitations
+
+| Operator | Current behavior |
+| --- | --- |
+| Slide | XY shake, direction/spread/tendency and RGB separation |
+| Scale | Zoom around the selected origin |
+| Time | Frame offsets, forward-only or both directions |
+| Color | Hue rotation / colorize approximation |
+| Light | Brightness adjustment |
+| Blur | Directional tap-filter approximation |
+
+- **An active Blur currently takes precedence over RGB Split.** Disable Blur
+  on the same Jitter instance for RGB separation. This release does not change
+  that limitation.
+- Master Speed is not used by the active engine.
+- Spread is not applied when Direction is 0 (or 360).
+- Slide/Scale Motion Blur, Scale Origin Randomize, Color Randomize and several
+  advanced Blur controls are present for parameter compatibility but not
+  implemented. Use Lens Blur does not select a lens-blur renderer.
+- Show Twitch Only is a debug view, not the original modulation overlay.
+- Color, Light and Blur do not reproduce the original Twitch algorithms.
+- The separate Twitch-compatible experimental value engine is not connected
+  to the plugin renderer.
+
+## Help and contribution
+
+[Installation and troubleshooting](INSTALL.md) · [Build and tests](BUILD.md)
+· [Issue tracker](https://github.com/theomirzakhanian/Jitter/issues)
+
+When reporting a problem, include Jitter version, AE version, macOS version,
+Mac chip, the exact error, and steps/settings that reproduce it. For visual
+problems, include composition size and bit depth. Remove personal paths or
+private project content from anything you share.
+
+## License and naming
+
+MIT; see [LICENSE](LICENSE). Twitch is a Video Copilot trademark. Jitter is
+independently developed and is not affiliated with Video Copilot.

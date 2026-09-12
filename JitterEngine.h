@@ -61,10 +61,9 @@ struct Config {
 //
 // Slide produces XY translation plus three per-channel split displacements
 // driven by the same event sequence. RGB Split is a sub-param of Slide, not
-// its own operator, so slide_amount=0 means no split either. The split is a
-// blend weight rather than an offset: it mixes the coherent slide against
-// three independent vectors of the same amplitude, which is what lets a tiny
-// shake carry a large chromatic separation.
+// its own operator: disabling Slide also disables RGB Split. Slide Amount
+// only controls the base motion; RGB Split blends it against independent
+// vectors scaled by Master Amount, allowing separation even at Slide Amount=0.
 struct Output {
 	double	slide_x;		// pixels  (positive = right)
 	double	slide_y;		// pixels  (positive = down)

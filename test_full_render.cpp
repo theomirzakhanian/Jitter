@@ -9,12 +9,7 @@
  * Catches the class of bugs that aren't catchable by the engine-only
  * harness — e.g., the temp_world.extent_hint=0 transparency bug.
  *
- * Build (from SDK/Effect/Jitter):
- *   clang++ -std=c++17 -O2 -Wall -Wno-unused-function -Wno-macro-redefined \
- *     -I../../Headers -I../../Headers/SP -I../../Util -I../../Resources \
- *     -DAE_OS_MAC=1 -DPF_DEEP_COLOR_AWARE=1 \
- *     test_full_render.cpp Mac/Jitter_Strings.cpp -o test_full_render
- *   ./test_full_render
+ * Build and run from SDK/Effect/Jitter using the command in BUILD.md.
  *******************************************************************/
 
 #include "Jitter.h"
@@ -414,13 +409,46 @@ struct RenderResult {
 	double frac_transparent;
 	double avg_red;
 	bool   ok;
+	double rgb_separation;
 };
+
+// A white square on black gives each color a measurable centre. Unlike a
+// flat fill, this catches missing RGB processing and double-scaled offsets.
+template <typename Pixel>
+static double rgb_fixture(PF_EffectWorld &world, bool fill, int white) {
+	double mass[3] = {}, mx[3] = {}, my[3] = {};
+	for (int y = 0; y < world.height; ++y) {
+		auto *row = reinterpret_cast<Pixel*>(reinterpret_cast<uint8_t*>(world.data) + y * world.rowbytes);
+		for (int x = 0; x < world.width; ++x) {
+			if (fill) {
+				const int value = (std::abs(x - world.width / 2) < 16 &&
+				                   std::abs(y - world.height / 2) < 16) ? white : 0;
+				row[x].alpha = white;
+				row[x].red = row[x].green = row[x].blue = value;
+			}
+			const double values[] = {double(row[x].red), double(row[x].green), double(row[x].blue)};
+			for (int c = 0; c < 3; ++c) {
+				mass[c] += values[c]; mx[c] += x * values[c]; my[c] += y * values[c];
+			}
+		}
+	}
+	if (mass[0] == 0 || mass[1] == 0 || mass[2] == 0) return -1.0;
+	double separation = 0;
+	for (int c = 0; c < 3; ++c) {
+		int next = (c + 1) % 3;
+		separation += std::hypot(mx[c] / mass[c] - mx[next] / mass[next],
+		                         my[c] / mass[c] - my[next] / mass[next]);
+	}
+	return separation / 3.0;
+}
 
 static RenderResult run_render(int width = 100, int height = 100,
                                const std::vector<ParamOverride> &overrides = {},
                                bool break_extent_hint = false,
-                               A_long current_time = 0)
+                               A_long current_time = 0,
+                               bool measure_rgb = false, bool deep = false)
 {
+	for (auto *buffer : g_world_buffers) delete buffer;
 	g_world_buffers.clear();
 	g_param_defs.clear();
 
@@ -464,9 +492,14 @@ static RenderResult run_render(int width = 100, int height = 100,
 	// PF_ParamDef matching the saved def.
 
 	// 3. Allocate input + output worlds
-	alloc_world(&g_input_world, width, height, false, false);
-	alloc_world(&g_output_world, width, height, false, true);
-	fill_input(&g_input_world, 200, 100, 50);
+	alloc_world(&g_input_world, width, height, deep, false);
+	alloc_world(&g_output_world, width, height, deep, true);
+	if (measure_rgb) {
+		if (deep) rgb_fixture<PF_Pixel16>(g_input_world, true, 32768);
+		else rgb_fixture<PF_Pixel>(g_input_world, true, 255);
+	} else {
+		fill_input(&g_input_world, 200, 100, 50);
+	}
 	if (g_break_output_extent_hint) {
 		// Simulate AE handing us output_worldP with extent_hint=(0,0,0,0).
 		// Plugin must explicitly initialize it or transform_world / iterate
@@ -480,7 +513,7 @@ static RenderResult run_render(int width = 100, int height = 100,
 	pin.output_request.field = PF_Field_FRAME;
 	pin.output_request.channel_mask = PF_ChannelMask_ARGB;
 	pin.output_request.preserve_rgb_of_zero_alpha = TRUE;
-	pin.bitdepth = 8;
+	pin.bitdepth = deep ? 16 : 8;
 	PF_PreRenderOutput pout{};
 	pout.result_rect = {0, 0, (A_short)width, (A_short)height};
 	pout.max_result_rect = pout.result_rect;
@@ -494,7 +527,7 @@ static RenderResult run_render(int width = 100, int height = 100,
 	// 5. SMART_RENDER
 	PF_SmartRenderInput sin{};
 	sin.output_request = pin.output_request;
-	sin.bitdepth = 8;
+	sin.bitdepth = pin.bitdepth;
 	sin.pre_render_data = pout.pre_render_data;
 	PF_SmartRenderExtra smart_extra{};
 	smart_extra.input = &sin;
@@ -513,6 +546,11 @@ static RenderResult run_render(int width = 100, int height = 100,
 	if (pout.delete_pre_render_data_func)
 		pout.delete_pre_render_data_func(pout.pre_render_data);
 
+	if (measure_rgb) {
+		double separation = deep ? rgb_fixture<PF_Pixel16>(g_output_world, false, 32768)
+		                         : rgb_fixture<PF_Pixel>(g_output_world, false, 255);
+		return {0, 0, true, separation};
+	}
 	double t = frac_transparent(&g_output_world);
 	double r = avg_red(&g_output_world);
 	return {t, r, true};
@@ -718,6 +756,31 @@ int main() {
 			check(name, r.frac_transparent < 0.3, detail);
 		}
 	}
+
+	// User-reported low-shake/high-RGB settings through the real plugin entry
+	// point, in both supported pixel depths and at several timeline positions.
+	for (bool deep : {false, true}) {
+		for (A_long frame : {0, 7, 30}) {
+			std::vector<ParamOverride> ovs = {
+				{AMOUNT_DISK_ID, 0, 10.0, false, 0},
+				{ENABLE_SLIDE_DISK_ID, 1, 0.0, true, 0},
+				{SLIDE_AMOUNT_DISK_ID, 0, 10.0, false, 0},
+				{SLIDE_RGB_SPLIT_DISK_ID, 0, 100.0, false, 0},
+			};
+			const auto low = run_render(256, 256, ovs, false, frame, true, deep);
+			ovs[2].float_val = 0.0;
+			const auto zero = run_render(256, 256, ovs, false, frame, true, deep);
+			ovs[3].float_val = 0.0;
+			const auto off = run_render(256, 256, ovs, false, frame, true, deep);
+			char label[128];
+			std::snprintf(label, sizeof(label), "%d-bit RGB regression @ frame %ld", deep ? 16 : 8, (long)frame);
+			check(label, low.ok && zero.ok && off.ok && low.rgb_separation > 10.0 &&
+			      std::fabs(low.rgb_separation - zero.rgb_separation) < 0.1 &&
+			      std::fabs(off.rgb_separation) < 0.01);
+		}
+	}
+	for (auto *buffer : g_world_buffers) delete buffer;
+	g_world_buffers.clear();
 
 	std::printf("\n%s (%d failure%s)\n",
 		failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED",

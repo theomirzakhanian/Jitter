@@ -399,8 +399,8 @@ About(PF_InData *in_data, PF_OutData *out_data, PF_ParamDef *params[], PF_LayerD
 	AEGP_SuiteHandler suites(in_data->pica_basicP);
 	suites.ANSICallbacksSuite1()->sprintf(
 		out_data->return_msg,
-		"Jitter / Twitch v%d.%d\rApple Silicon native port of Video Copilot Twitch.",
-		MAJOR_VERSION, MINOR_VERSION);
+		"Jitter v%d.%d.%d\rIndependent motion glitches for After Effects.\rgithub.com/theomirzakhanian/Jitter",
+		MAJOR_VERSION, MINOR_VERSION, BUG_VERSION);
 	return PF_Err_NONE;
 }
 
@@ -1174,7 +1174,7 @@ PF_Err PluginDataEntryFunction2(
 		"Video Copilot",
 		AE_RESERVED_INFO,
 		"EffectMain",
-		"https://www.adobe.com");
+		"https://github.com/theomirzakhanian/Jitter");
 	PF_Err result_jitter = result;
 
 	// Legacy match name "Videocopilot Twitch" — required so existing
@@ -1187,7 +1187,7 @@ PF_Err PluginDataEntryFunction2(
 		"Video Copilot",
 		AE_RESERVED_INFO,
 		"EffectMain",
-		"https://www.adobe.com");
+		"https://github.com/theomirzakhanian/Jitter");
 	PF_Err result_twitch = result;
 
 	return (result_jitter == PF_Err_NONE || result_twitch == PF_Err_NONE)

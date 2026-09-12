@@ -13,6 +13,7 @@ xcuserdata/
 *.xcworkspace/xcuserdata/
 
 # Build artifacts
+dist/
 *.o
 *.dylib
 *.plugin

@@ -51,9 +51,9 @@
 
 #include "Jitter_Strings.h"
 
-/* Versioning. Matches Twitch's PiPL exactly: PF_VERSION(1, 1, 0, RELEASE, 0). */
+/* Jitter release version; legacy parameter disk IDs stay unchanged. */
 #define	MAJOR_VERSION	1
-#define	MINOR_VERSION	1
+#define	MINOR_VERSION	3
 #define	BUG_VERSION		0
 #define	STAGE_VERSION	PF_Stage_RELEASE
 #define	BUILD_VERSION	0
