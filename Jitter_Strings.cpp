@@ -49,6 +49,8 @@ TableString g_strs[StrID_NUMTYPES] = {
 	{ StrID_Slide_Tendency,             "Slide Tendency" },
 	{ StrID_Slide_Motion_Blur,          "Slide Motion Blur" },
 	{ StrID_Slide_RGB_Split,            "Slide RGB Split" },
+	{ StrID_Slide_Border,               "Border" },
+	{ StrID_Slide_Border_Choices,       "Off|Repeat Edge|Tile|Mirror" },
 
 	{ StrID_Scale_Group,                "Scale" },
 	{ StrID_Scale_Amount,               "Scale Amount" },

@@ -361,12 +361,23 @@ static void setup_callbacks() {
 // ==========================================================================
 // Test driver
 // ==========================================================================
+// Flat fill and measurements, depth-aware. 8-bit values are given on the
+// 0..255 scale; 16-bit worlds store them on AE's 0..32768 scale and report
+// avg_red back on the 0..255 scale so thresholds are shared.
+static bool is_deep(const PF_EffectWorld *w) { return (w->world_flags & PF_WorldFlag_DEEP) != 0; }
+static A_u_short to16(uint8_t v) { return static_cast<A_u_short>((v * PF_MAX_CHAN16 + 127) / 255); }
+
 static void fill_input(PF_EffectWorld *w, uint8_t r, uint8_t g, uint8_t b) {
 	for (A_long y = 0; y < w->height; y++) {
-		PF_Pixel *row = reinterpret_cast<PF_Pixel*>(
-			reinterpret_cast<uint8_t*>(w->data) + y * w->rowbytes);
+		uint8_t *rowp = reinterpret_cast<uint8_t*>(w->data) + y * w->rowbytes;
 		for (A_long x = 0; x < w->width; x++) {
-			row[x].alpha = 255; row[x].red = r; row[x].green = g; row[x].blue = b;
+			if (is_deep(w)) {
+				PF_Pixel16 &p = reinterpret_cast<PF_Pixel16*>(rowp)[x];
+				p.alpha = PF_MAX_CHAN16; p.red = to16(r); p.green = to16(g); p.blue = to16(b);
+			} else {
+				PF_Pixel &p = reinterpret_cast<PF_Pixel*>(rowp)[x];
+				p.alpha = 255; p.red = r; p.green = g; p.blue = b;
+			}
 		}
 	}
 }
@@ -374,11 +385,12 @@ static void fill_input(PF_EffectWorld *w, uint8_t r, uint8_t g, uint8_t b) {
 static double frac_transparent(const PF_EffectWorld *w) {
 	long count = 0, transparent = 0;
 	for (A_long y = 0; y < w->height; y++) {
-		const PF_Pixel *row = reinterpret_cast<const PF_Pixel*>(
-			reinterpret_cast<const uint8_t*>(w->data) + y * w->rowbytes);
+		const uint8_t *rowp = reinterpret_cast<const uint8_t*>(w->data) + y * w->rowbytes;
 		for (A_long x = 0; x < w->width; x++) {
 			count++;
-			if (row[x].alpha == 0) transparent++;
+			const A_long a = is_deep(w) ? reinterpret_cast<const PF_Pixel16*>(rowp)[x].alpha
+			                            : reinterpret_cast<const PF_Pixel*>(rowp)[x].alpha;
+			if (a == 0) transparent++;
 		}
 	}
 	return static_cast<double>(transparent) / count;
@@ -387,9 +399,12 @@ static double frac_transparent(const PF_EffectWorld *w) {
 static double avg_red(const PF_EffectWorld *w) {
 	long count = 0; double sum = 0;
 	for (A_long y = 0; y < w->height; y++) {
-		const PF_Pixel *row = reinterpret_cast<const PF_Pixel*>(
-			reinterpret_cast<const uint8_t*>(w->data) + y * w->rowbytes);
-		for (A_long x = 0; x < w->width; x++) { sum += row[x].red; count++; }
+		const uint8_t *rowp = reinterpret_cast<const uint8_t*>(w->data) + y * w->rowbytes;
+		for (A_long x = 0; x < w->width; x++) {
+			sum += is_deep(w) ? reinterpret_cast<const PF_Pixel16*>(rowp)[x].red * 255.0 / PF_MAX_CHAN16
+			                  : reinterpret_cast<const PF_Pixel*>(rowp)[x].red;
+			count++;
+		}
 	}
 	return sum / count;
 }
@@ -779,6 +794,47 @@ int main() {
 			      std::fabs(off.rgb_separation) < 0.01);
 		}
 	}
+	// Slide Border (issue #1): a hard slide exposes transparent edges with
+	// Border Off; every other mode must fill them from the image. Covers the
+	// fast path (slide only) and the slow path (RGB Split on), at both depths.
+	{
+		run_render();
+		const PF_ParamDef *bp = find_by_disk_id(SLIDE_BORDER_DISK_ID);
+		check("Border param registered, defaults to Off",
+			bp && bp->param_type == PF_Param_POPUP && bp->u.pd.value == BORDER_OFF);
+	}
+	for (bool deep : {false, true}) {
+		for (double split : {0.0, 60.0}) {
+			auto ovs_for = [&](int border) {
+				return std::vector<ParamOverride>{
+					{AMOUNT_DISK_ID,          0, 100.0, false, 0},
+					{ENABLE_SLIDE_DISK_ID,    1, 0.0,   true,  0},
+					{SLIDE_AMOUNT_DISK_ID,    0, 40.0,  false, 0},
+					{SLIDE_TWITCHES_DISK_ID,  0, 5.0,   false, 0},
+					{SLIDE_RGB_SPLIT_DISK_ID, 0, split, false, 0},
+					{SLIDE_BORDER_DISK_ID,    2, 0.0,   false, border},
+				};
+			};
+			const auto off = run_render(640, 360, ovs_for(BORDER_OFF), false, 30, false, deep);
+			char label[160], detail[128];
+			std::snprintf(detail, sizeof(detail), "frac_transparent=%.3f", off.frac_transparent);
+			std::snprintf(label, sizeof(label), "%d-bit split=%.0f Border Off: slide exposes edges",
+				deep ? 16 : 8, split);
+			check(label, off.frac_transparent > 0.05, detail);
+			const struct { int mode; const char *name; } modes[] = {
+				{BORDER_REPEAT_EDGE, "Repeat Edge"}, {BORDER_TILE, "Tile"}, {BORDER_MIRROR, "Mirror"},
+			};
+			for (const auto &mode : modes) {
+				const auto r = run_render(640, 360, ovs_for(mode.mode), false, 30, false, deep);
+				std::snprintf(detail, sizeof(detail), "frac_transparent=%.3f avg_red=%.0f",
+					r.frac_transparent, r.avg_red);
+				std::snprintf(label, sizeof(label), "%d-bit split=%.0f Border %s: no transparent edges",
+					deep ? 16 : 8, split, mode.name);
+				check(label, r.frac_transparent == 0.0, detail);
+			}
+		}
+	}
+
 	for (auto *buffer : g_world_buffers) delete buffer;
 	g_world_buffers.clear();
 

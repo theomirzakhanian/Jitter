@@ -68,6 +68,7 @@ struct JitterPreRenderData {
 	double			scale_origin_y_pct;
 	A_long			time_direction;		// TIME_DIR_*
 	A_long			light_behaviour;	// LIGHT_BEH_*
+	A_long			slide_border;		// BORDER_*
 	bool			color_colorize;
 	bool			show_twitch_only;
 };
@@ -77,9 +78,37 @@ static void DeleteJitterPreRenderData(void *p) {
 }
 
 // ===================================================================
-// RGB Split helpers — bilinear sample with out-of-bounds → transparent black
+// Sampling helpers — bilinear, with the Slide Border mode deciding what an
+// out-of-bounds tap reads: transparent (Off), the nearest edge pixel, the
+// image repeated, or the image reflected.
 // ===================================================================
-static inline PF_Pixel SamplePixel8(const PF_EffectWorld *w, double x, double y) {
+
+// Maps a pixel index into [0, n) for the given border mode, or -1 when the
+// tap should read transparent black.
+static inline int BorderIndex(int i, int n, A_long border) {
+	if (n <= 0) return -1;
+	if (i >= 0 && i < n) return i;
+	switch (border) {
+		case BORDER_REPEAT_EDGE:
+			return i < 0 ? 0 : n - 1;
+		case BORDER_TILE: {
+			int m = i % n;
+			return m < 0 ? m + n : m;
+		}
+		case BORDER_MIRROR: {
+			// Reflect without repeating the edge pixel twice: period 2n.
+			const int period = 2 * n;
+			int m = i % period;
+			if (m < 0) m += period;
+			return m < n ? m : period - 1 - m;
+		}
+		default:
+			return -1;
+	}
+}
+
+static inline PF_Pixel SamplePixel8(const PF_EffectWorld *w, double x, double y,
+                                    A_long border = BORDER_OFF) {
 	int x0 = static_cast<int>(std::floor(x));
 	int y0 = static_cast<int>(std::floor(y));
 	double fx = x - x0;
@@ -89,9 +118,9 @@ static inline PF_Pixel SamplePixel8(const PF_EffectWorld *w, double x, double y)
 	const int dx[4] = { 0, 1, 0, 1 };
 	const int dy[4] = { 0, 0, 1, 1 };
 	for (int i = 0; i < 4; i++) {
-		int xi = x0 + dx[i];
-		int yi = y0 + dy[i];
-		if (xi < 0 || yi < 0 || xi >= w->width || yi >= w->height) {
+		int xi = BorderIndex(x0 + dx[i], w->width,  border);
+		int yi = BorderIndex(y0 + dy[i], w->height, border);
+		if (xi < 0 || yi < 0) {
 			p[i].alpha = p[i].red = p[i].green = p[i].blue = 0;
 		} else {
 			p[i] = *reinterpret_cast<const PF_Pixel*>(
@@ -112,7 +141,8 @@ static inline PF_Pixel SamplePixel8(const PF_EffectWorld *w, double x, double y)
 	return out;
 }
 
-static inline PF_Pixel16 SamplePixel16(const PF_EffectWorld *w, double x, double y) {
+static inline PF_Pixel16 SamplePixel16(const PF_EffectWorld *w, double x, double y,
+                                      A_long border = BORDER_OFF) {
 	int x0 = static_cast<int>(std::floor(x));
 	int y0 = static_cast<int>(std::floor(y));
 	double fx = x - x0;
@@ -122,9 +152,9 @@ static inline PF_Pixel16 SamplePixel16(const PF_EffectWorld *w, double x, double
 	const int dx[4] = { 0, 1, 0, 1 };
 	const int dy[4] = { 0, 0, 1, 1 };
 	for (int i = 0; i < 4; i++) {
-		int xi = x0 + dx[i];
-		int yi = y0 + dy[i];
-		if (xi < 0 || yi < 0 || xi >= w->width || yi >= w->height) {
+		int xi = BorderIndex(x0 + dx[i], w->width,  border);
+		int yi = BorderIndex(y0 + dy[i], w->height, border);
+		if (xi < 0 || yi < 0) {
 			p[i].alpha = p[i].red = p[i].green = p[i].blue = 0;
 		} else {
 			p[i] = *reinterpret_cast<const PF_Pixel16*>(
@@ -151,7 +181,37 @@ struct RGBSplitInfo {
 	double					r_x, r_y;
 	double					g_x, g_y;
 	double					b_x, b_y;
+	A_long					border;	// BORDER_*
 };
+
+// Inverse-mapped slide/scale with a border mode. Used instead of
+// transform_world whenever Border is not Off, because transform_world can
+// only leave the exposed area transparent.
+struct TransformInfo {
+	const PF_EffectWorld	*src;
+	double					inv_a, inv_d;	// 1 / scale
+	double					tx, ty;			// forward translation
+	A_long					border;			// BORDER_*
+};
+
+static PF_Err TransformPixel8(void *refcon, A_long x, A_long y, PF_Pixel *in, PF_Pixel *out) {
+	(void)in;
+	const TransformInfo *info = static_cast<const TransformInfo*>(refcon);
+	// Pixel-centre mapping so zoom stays centred on the origin.
+	const double sx = (x + 0.5 - info->tx) * info->inv_a - 0.5;
+	const double sy = (y + 0.5 - info->ty) * info->inv_d - 0.5;
+	*out = SamplePixel8(info->src, sx, sy, info->border);
+	return PF_Err_NONE;
+}
+
+static PF_Err TransformPixel16(void *refcon, A_long x, A_long y, PF_Pixel16 *in, PF_Pixel16 *out) {
+	(void)in;
+	const TransformInfo *info = static_cast<const TransformInfo*>(refcon);
+	const double sx = (x + 0.5 - info->tx) * info->inv_a - 0.5;
+	const double sy = (y + 0.5 - info->ty) * info->inv_d - 0.5;
+	*out = SamplePixel16(info->src, sx, sy, info->border);
+	return PF_Err_NONE;
+}
 
 // ===================================================================
 // Color operator — HSL hue rotation, in-place on temp world.
@@ -297,6 +357,7 @@ struct BlurInfo {
 	double					dx;		// step vector in pixels per tap
 	double					dy;
 	int						radius;	// taps each side
+	A_long					border;	// BORDER_*
 };
 
 static PF_Err BlurPixel8(void *refcon, A_long x, A_long y, PF_Pixel *in, PF_Pixel *out) {
@@ -308,7 +369,7 @@ static PF_Err BlurPixel8(void *refcon, A_long x, A_long y, PF_Pixel *in, PF_Pixe
 	double inv2sig2 = 1.0 / (2.0 * sigma * sigma);
 	for (int i = -R; i <= R; i++) {
 		double w = std::exp(-(i * i) * inv2sig2);
-		PF_Pixel s = SamplePixel8(info->src, x + i * info->dx, y + i * info->dy);
+		PF_Pixel s = SamplePixel8(info->src, x + i * info->dx, y + i * info->dy, info->border);
 		sumA += w * s.alpha;
 		sumR += w * s.red;
 		sumG += w * s.green;
@@ -331,7 +392,7 @@ static PF_Err BlurPixel16(void *refcon, A_long x, A_long y, PF_Pixel16 *in, PF_P
 	double inv2sig2 = 1.0 / (2.0 * sigma * sigma);
 	for (int i = -R; i <= R; i++) {
 		double w = std::exp(-(i * i) * inv2sig2);
-		PF_Pixel16 s = SamplePixel16(info->src, x + i * info->dx, y + i * info->dy);
+		PF_Pixel16 s = SamplePixel16(info->src, x + i * info->dx, y + i * info->dy, info->border);
 		sumA += w * s.alpha;
 		sumR += w * s.red;
 		sumG += w * s.green;
@@ -351,9 +412,9 @@ static PF_Err RGBSplitPixel8(void *refcon, A_long x, A_long y, PF_Pixel *in, PF_
 	// Each channel samples from where its own vector put it. Alpha is the mean
 	// of the three, so a pixel that only one channel reached is partly
 	// transparent rather than fully opaque, which keeps colour under alpha.
-	PF_Pixel r = SamplePixel8(info->src, x - info->r_x, y - info->r_y);
-	PF_Pixel g = SamplePixel8(info->src, x - info->g_x, y - info->g_y);
-	PF_Pixel b = SamplePixel8(info->src, x - info->b_x, y - info->b_y);
+	PF_Pixel r = SamplePixel8(info->src, x - info->r_x, y - info->r_y, info->border);
+	PF_Pixel g = SamplePixel8(info->src, x - info->g_x, y - info->g_y, info->border);
+	PF_Pixel b = SamplePixel8(info->src, x - info->b_x, y - info->b_y, info->border);
 	const double a = (static_cast<double>(r.alpha) +
 	                  static_cast<double>(g.alpha) +
 	                  static_cast<double>(b.alpha)) / 3.0;
@@ -367,9 +428,9 @@ static PF_Err RGBSplitPixel8(void *refcon, A_long x, A_long y, PF_Pixel *in, PF_
 static PF_Err RGBSplitPixel16(void *refcon, A_long x, A_long y, PF_Pixel16 *in, PF_Pixel16 *out) {
 	(void)in;
 	RGBSplitInfo *info = static_cast<RGBSplitInfo*>(refcon);
-	PF_Pixel16 r = SamplePixel16(info->src, x - info->r_x, y - info->r_y);
-	PF_Pixel16 g = SamplePixel16(info->src, x - info->g_x, y - info->g_y);
-	PF_Pixel16 b = SamplePixel16(info->src, x - info->b_x, y - info->b_y);
+	PF_Pixel16 r = SamplePixel16(info->src, x - info->r_x, y - info->r_y, info->border);
+	PF_Pixel16 g = SamplePixel16(info->src, x - info->g_x, y - info->g_y, info->border);
+	PF_Pixel16 b = SamplePixel16(info->src, x - info->b_x, y - info->b_y, info->border);
 	const double a = (static_cast<double>(r.alpha) +
 	                  static_cast<double>(g.alpha) +
 	                  static_cast<double>(b.alpha)) / 3.0;
@@ -561,7 +622,7 @@ ParamsSetup(PF_InData *in_data, PF_OutData *out_data, PF_ParamDef *params[], PF_
 		PF_Precision_INTEGER, SCALE_SEED_DISK_ID);
 	ADD_END_TOPIC(SCALE_GROUP_END_DISK_ID);
 
-	// --- Slide — Amount, Twitches, Direction, Spread, Tendency, RGB Split, Motion Blur, Seed
+	// --- Slide — Amount, Twitches, Direction, Spread, Tendency, RGB Split, Motion Blur, Border, Seed
 	ADD_TOPIC(STR(StrID_Slide_Group), SLIDE_GROUP_START_DISK_ID);
 	ADD_FLOAT(STR(StrID_Slide_Amount),   OP_AMOUNT_MIN, OP_AMOUNT_MAX, OP_AMOUNT_DFLT,
 		PF_Precision_HUNDREDTHS, SLIDE_AMOUNT_DISK_ID);
@@ -577,6 +638,9 @@ ParamsSetup(PF_InData *in_data, PF_OutData *out_data, PF_ParamDef *params[], PF_
 		PF_Precision_HUNDREDTHS, SLIDE_RGB_SPLIT_DISK_ID);
 	ADD_FLOAT(STR(StrID_Slide_Motion_Blur), 0.0, 100.0, SLIDE_MOBLUR_DFLT,
 		PF_Precision_HUNDREDTHS, SLIDE_MOTION_BLUR_DISK_ID);
+	AEFX_CLR_STRUCT(def);
+	PF_ADD_POPUPX(STR(StrID_Slide_Border), BORDER_NUM_CHOICES, BORDER_DFLT,
+		STR(StrID_Slide_Border_Choices), 0, SLIDE_BORDER_DISK_ID);
 	ADD_FLOAT(STR(StrID_Slide_Seed), OP_SEED_MIN, OP_SEED_MAX, OP_SEED_DFLT,
 		PF_Precision_INTEGER, SLIDE_SEED_DISK_ID);
 	ADD_END_TOPIC(SLIDE_GROUP_END_DISK_ID);
@@ -687,6 +751,9 @@ SmartPreRender(PF_InData *in_data, PF_OutData *out_data, PF_PreRenderExtra *extr
 	double slide_rgb_split_amt = 0;
 	CHECK_F(SLIDE_RGB_SPLIT, slide_rgb_split_amt);
 	cfg.slide_rgb_split = slide_rgb_split_amt;
+	A_long slide_border = BORDER_DFLT;
+	CHECK_POPUP(SLIDE_BORDER, slide_border);
+	if (slide_border < BORDER_OFF || slide_border > BORDER_MIRROR) slide_border = BORDER_OFF;
 
 	// ---- Scale ----
 	CHECK_F(SCALE_AMOUNT,    cfg.scale.amount);
@@ -818,6 +885,7 @@ SmartPreRender(PF_InData *in_data, PF_OutData *out_data, PF_PreRenderExtra *extr
 	pdata->scale_origin_y_pct  = scale_origin_y_fixed;
 	pdata->time_direction      = time_direction;
 	pdata->light_behaviour     = light_behaviour;
+	pdata->slide_border        = slide_border;
 	pdata->color_colorize      = color_colorize;
 	pdata->show_twitch_only    = show_twitch_only;
 	extra->output->pre_render_data            = pdata;
@@ -966,6 +1034,34 @@ SmartRender(PF_InData *in_data, PF_OutData *out_data, PF_SmartRenderExtra *extra
 	                                    	// fully transparent in 16/32bpc
 
 	bool deep        = PF_WORLD_IS_DEEP(output_worldP);
+
+	// Slide/Scale into dst. Border Off keeps AE's transform_world (exposed
+	// area stays transparent, exactly as before). Any other mode inverse-maps
+	// every dst pixel so the exposed area is filled from the image itself.
+	const A_long border = pdata->slide_border;
+	auto transform_into = [&](PF_EffectWorld *dst) -> PF_Err {
+		if (border == BORDER_OFF) {
+			return (*in_data->utils->transform_world)(
+				in_data->effect_ref, in_data->quality, PF_MF_Alpha_STRAIGHT, in_data->field,
+				input_worldP, &comp_mode, NULL, &m, 1, TRUE,
+				&dst->extent_hint, dst);
+		}
+		TransformInfo tinfo;
+		tinfo.src    = input_worldP;
+		tinfo.inv_a  = 1.0 / a;
+		tinfo.inv_d  = 1.0 / d;
+		tinfo.tx     = tx;
+		tinfo.ty     = ty;
+		tinfo.border = border;
+		// src == dst: the pixel function ignores `in` and reads tinfo.src.
+		if (deep) {
+			return suites.Iterate16Suite2()->iterate(
+				in_data, 0, dst->height, dst, NULL, &tinfo, TransformPixel16, dst);
+		}
+		return suites.Iterate8Suite2()->iterate(
+			in_data, 0, dst->height, dst, NULL, &tinfo, TransformPixel8, dst);
+	};
+
 	bool needs_split = (std::fabs(v.split_r_x) >= 0.5) || (std::fabs(v.split_r_y) >= 0.5) ||
 	                   (std::fabs(v.split_g_x) >= 0.5) || (std::fabs(v.split_g_y) >= 0.5) ||
 	                   (std::fabs(v.split_b_x) >= 0.5) || (std::fabs(v.split_b_y) >= 0.5);
@@ -987,11 +1083,8 @@ SmartRender(PF_InData *in_data, PF_OutData *out_data, PF_SmartRenderExtra *extra
 			PF_Pixel zero8 = { 0, 0, 0, 0 };
 			ERR(suites.FillMatteSuite2()->fill(in_data->effect_ref, &zero8, NULL, output_worldP));
 		}
-		ERR((*in_data->utils->transform_world)(
-			in_data->effect_ref, in_data->quality, PF_MF_Alpha_STRAIGHT, in_data->field,
-			input_worldP, &comp_mode, NULL, &m, 1, TRUE,
-			&output_worldP->extent_hint, output_worldP));
-		JLog("Render: FAST PATH transform_world err=%d output extent=(%d,%d,%d,%d)",
+		ERR(transform_into(output_worldP));
+		JLog("Render: FAST PATH transform err=%d output extent=(%d,%d,%d,%d)",
 			(int)err,
 			(int)output_worldP->extent_hint.left, (int)output_worldP->extent_hint.top,
 			(int)output_worldP->extent_hint.right, (int)output_worldP->extent_hint.bottom);
@@ -1022,11 +1115,8 @@ SmartRender(PF_InData *in_data, PF_OutData *out_data, PF_SmartRenderExtra *extra
 		(int)temp_world.extent_hint.right, (int)temp_world.extent_hint.bottom,
 		(void*)temp_world.data);
 
-	ERR((*in_data->utils->transform_world)(
-		in_data->effect_ref, in_data->quality, PF_MF_Alpha_STRAIGHT, in_data->field,
-		input_worldP, &comp_mode, NULL, &m, 1, TRUE,
-		&temp_world.extent_hint, &temp_world));
-	JLog("Render: transform_world(input → temp_world) err=%d", (int)err);
+	ERR(transform_into(&temp_world));
+	JLog("Render: transform(input → temp_world) err=%d border=%ld", (int)err, (long)border);
 
 	// ---- Color: in-place HSL hue rotation on temp_world ----
 	if (!err && needs_color) {
@@ -1082,6 +1172,7 @@ SmartRender(PF_InData *in_data, PF_OutData *out_data, PF_SmartRenderExtra *extra
 		binfo.dx     = dx;
 		binfo.dy     = dy;
 		binfo.radius = radius;
+		binfo.border = border;
 		if (deep) {
 			ERR(suites.Iterate16Suite2()->iterate(
 				in_data, 0, temp_world.height, &temp_world, NULL,
@@ -1100,6 +1191,7 @@ SmartRender(PF_InData *in_data, PF_OutData *out_data, PF_SmartRenderExtra *extra
 		info.r_x = v.split_r_x;  info.r_y = v.split_r_y;
 		info.g_x = v.split_g_x;  info.g_y = v.split_g_y;
 		info.b_x = v.split_b_x;  info.b_y = v.split_b_y;
+		info.border = border;
 		if (deep) {
 			ERR(suites.Iterate16Suite2()->iterate(
 				in_data, 0, temp_world.height, &temp_world, NULL,

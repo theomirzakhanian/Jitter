@@ -49,6 +49,8 @@ typedef enum {
 	StrID_Slide_Tendency,
 	StrID_Slide_Motion_Blur,
 	StrID_Slide_RGB_Split,
+	StrID_Slide_Border,
+	StrID_Slide_Border_Choices,	// "Off|Repeat Edge|Tile|Mirror"
 
 	// Scale operator
 	StrID_Scale_Group,

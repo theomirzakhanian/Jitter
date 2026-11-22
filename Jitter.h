@@ -110,6 +110,16 @@
 #define	LIGHT_BEH_DARKER		2
 #define	LIGHT_BEH_BOTH			3
 
+/* Slide Border popup choices: what fills the area a slide or zoom-out
+ * exposes. Off keeps the old transparent behaviour and stays the default so
+ * existing comps render unchanged. */
+#define	BORDER_OFF				1
+#define	BORDER_REPEAT_EDGE		2
+#define	BORDER_TILE				3
+#define	BORDER_MIRROR			4
+#define	BORDER_NUM_CHOICES		4
+#define	BORDER_DFLT				BORDER_OFF
+
 /* Blur Transfer Mode popup choices — order matches Twitch's binary string layout */
 #define	BLUR_XFER_NORMAL		1
 #define	BLUR_XFER_SCREEN		2
@@ -190,7 +200,7 @@ enum {
 	SCALE_GROUP_END,
 
 	/* Slide — Amount, Twitches, Direction, Spread, Tendency, RGB Split,
-	 * Motion Blur, Seed */
+	 * Motion Blur, Border, Seed */
 	SLIDE_GROUP_START,
 	SLIDE_AMOUNT,
 	SLIDE_TWITCHES,
@@ -199,6 +209,7 @@ enum {
 	SLIDE_TENDENCY,
 	SLIDE_RGB_SPLIT,
 	SLIDE_MOTION_BLUR,
+	SLIDE_BORDER,
 	SLIDE_SEED,
 	SLIDE_GROUP_END,
 
@@ -232,7 +243,7 @@ enum {
 	OPERATOR_CONTROLS_GROUP_START_DISK_ID = 12,
 	SHOW_TWITCH_ONLY_DISK_ID             = 13,
 	SLIDE_MOTION_BLUR_DISK_ID            = 14,
-	/* disk 15 = Twitch's "Border" popup (Slide edge mode) — unimplemented */
+	SLIDE_BORDER_DISK_ID                 = 15,	// Twitch's "Border" popup (Slide edge mode)
 	SEED_DISK_ID                         = 16,
 	COLOR_GROUP_START_DISK_ID            = 17,
 	COLOR_AMOUNT_DISK_ID                 = 18,
