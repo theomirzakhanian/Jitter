@@ -1,5 +1,14 @@
 # Release notes
 
+## Unreleased
+
+### Slide Border
+
+New **Slide > Border** popup chooses what fills the edges a slide or zoom-out
+exposes: **Off** (transparent, as before), **Repeat Edge**, **Tile** or
+**Mirror**. It also applies to RGB Split and Blur sampling. Off is the default,
+so existing comps render unchanged. Uses Twitch's original Border disk ID.
+
 ## v1.3.0 — 2026-09-12
 
 ### RGB separation independent of Slide Amount
